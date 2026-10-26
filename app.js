@@ -1,5 +1,5 @@
 import { html, render, useState, useEffect, useRef } from './vendor/standalone.module.js';
-import { call, getToken, setToken, DEMO, resetDemo } from './api.js';
+import { call, getToken, setToken, DEMO } from './api.js';
 
 /* ───────── 공통 ───────── */
 
@@ -129,6 +129,7 @@ function Spend({ data, api }) {
   const [tf, setTf] = useState('all');
   const [openId, setOpenId] = useState(null);
   const [edit, setEdit] = useState(null);
+  const [sumOpen, setSumOpen] = useState(false);
 
   const [y, m] = ym;
   const prefix = `${y}-${pad(m)}`;
@@ -229,9 +230,14 @@ function Spend({ data, api }) {
       </div>
       ${!isCur ? html`<button type="button" class="link" style="font-size:15px" onClick=${() => moveMonth((now.getFullYear() - y) * 12 + now.getMonth() + 1 - m)}>이번 달</button>` : ''}
     </div>
-    <h1 class="h1">생활비</h1>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 4px 16px">
+      <h1 class="h1" style="margin:0">생활비</h1>
+      <button type="button" aria-expanded=${sumOpen} onClick=${() => setSumOpen(!sumOpen)} class="row" style="gap:4px;border:0;background:#fff;border-radius:16px;padding:0 12px;height:32px;font-size:14px;font-weight:600;color:var(--text2)">
+        ${sumOpen ? '요약 접기' : '요약 보기'}${I.chev(sumOpen, 12)}
+      </button>
+    </div>
 
-    <section class="card pad">
+    ${sumOpen && html`<section class="card pad" style="margin-bottom:28px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between">
         <div style="display:flex;flex-direction:column;gap:4px">
           <span class="lbl">${isCur ? '이번 달 쓴 돈' : m + '월 쓴 돈'}</span>
@@ -252,9 +258,8 @@ function Spend({ data, api }) {
         ${isCur ? html`<span style="flex:none;font-size:12px;font-weight:700;background:var(--bg);border-radius:6px;padding:3px 7px">D-${left}</span>` : ''}
         <span>${restText}</span>
       </div>
-    </section>
+    </section>`}
 
-    <h2 class="h2">빠른 입력</h2>
     <section class="card" style="padding:16px;display:flex;flex-direction:column;gap:14px">
       <${AmtInput} value=${q.amt} onChange=${(v) => setQ(Object.assign({}, q, { amt: v }))} />
       <div class="chips" role="radiogroup" aria-label="항목" style="grid-template-columns:repeat(5,minmax(0,1fr))">
@@ -901,15 +906,12 @@ function Settings({ data, api, lockNow }) {
       </button>
     </section>
 
-    <h2 class="h2">데이터</h2>
+    ${data.config.sheetUrl && html`<h2 class="h2">데이터</h2>
     <section class="card">
-      ${data.config.sheetUrl
-        ? html`<a href=${data.config.sheetUrl} target="_blank" rel="noopener" style=${rowBtn}>
+      <a href=${data.config.sheetUrl} target="_blank" rel="noopener" style=${rowBtn}>
             ${icon('#1F8A4C', html`<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/>`)}<span style="flex:1">구글 시트 열기</span>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg></a>`
-        : html`<button type="button" style=${rowBtn} onClick=${() => { resetDemo(); location.reload(); }}>
-            ${icon('#1F8A4C', html`<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>`)}<span style="flex:1">데모 데이터 처음으로</span></button>`}
-    </section>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+    </section>`}
     <p style="margin:16px 4px;font-size:12px;color:var(--faint)">가계부 v1.0</p>
 
     ${pin && html`<${PinPad} title=${TITLES[pin.step]} msg=${pin.msg} busy=${busy} onDone=${onPin} onCancel=${() => setPin(null)} />`}
