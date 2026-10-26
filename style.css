@@ -36,7 +36,7 @@ input::placeholder { color: var(--faint); }
 .page { max-width: 520px; margin: 0 auto; padding: calc(var(--safe-t) + 8px) 16px calc(100px + var(--safe-b)); min-height: 100vh; }
 .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 4px; }
 .topbar .meta { font-size: 15px; color: var(--muted); }
-.h1 { margin: 6px 4px 16px; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }
+.h1 { margin: 6px 4px 16px; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
 .h2 { margin: 28px 4px 8px; font-size: 13px; font-weight: 500; color: var(--muted); }
 .card { background: var(--card); border-radius: 20px; overflow: hidden; }
 .pad { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
