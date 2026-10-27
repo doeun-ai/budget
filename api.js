@@ -6,6 +6,13 @@ const TOKEN_KEY = 'budget.token';
 export function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
 export function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
 
+// 앱을 열자마자 구글 서버를 미리 깨워두기 (PIN 누르는 동안 준비)
+export function warm() { if (!DEMO) fetch(API_URL).catch(() => {}); }
+
+const CACHE_KEY = 'budget.cache';
+export function readCache() { try { const s = localStorage.getItem(CACHE_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+export function writeCache(d) { try { d ? localStorage.setItem(CACHE_KEY, JSON.stringify(d)) : localStorage.removeItem(CACHE_KEY); } catch (e) {} }
+
 export async function call(action, payload = {}) {
   if (DEMO) return mock(action, payload);
   const res = await fetch(API_URL, {
@@ -99,7 +106,7 @@ async function mock(action, p) {
   await new Promise(r => setTimeout(r, 120));
   const d = db();
   const out = (o) => JSON.parse(JSON.stringify(o));
-  if (action === 'login') return p.pin === d.pin ? { ok: true, token: 'demo' } : { ok: false, error: 'pin', left: 4 };
+  if (action === 'login') { if (p.pin !== d.pin) return { ok: false, error: 'pin', left: 4 }; const { pin, ...rest } = d; return { ok: true, token: 'demo', data: out(rest) }; }
   switch (action) {
     case 'load': {
       const { pin, ...rest } = d;

@@ -1,5 +1,5 @@
 import { html, render, useState, useEffect, useRef } from './vendor/standalone.module.js';
-import { call, getToken, setToken, DEMO } from './api.js';
+import { call, getToken, setToken, DEMO, warm, readCache, writeCache } from './api.js';
 
 /* ───────── 공통 ───────── */
 
@@ -931,9 +931,9 @@ function App() {
       const at = Number(localStorage.getItem('budget.hiddenAt') || 0);
       if (!at || Date.now() - at >= getLockMin() * 60000) return 'relock';
     } catch (e) {}
-    return 'loading';
+    return readCache() ? 'ready' : 'loading';
   });
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(() => readCache());
   const [tab, setTab] = useState('spend');
   const [checkup, setCheckup] = useState(false);
   const [pinMsg, setPinMsg] = useState('');
@@ -944,7 +944,8 @@ function App() {
 
   const showToast = (t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2200); };
 
-  const load = async () => {
+  // silent: 저장해둔 화면을 먼저 보여주고 뒤에서 최신 데이터로 바꾸기
+  const load = async (silent) => {
     try {
       const r = await call('load');
       if (!r.ok) {
@@ -952,12 +953,15 @@ function App() {
         throw new Error(r.error);
       }
       setData(r.data);
-      setPhase('ready');
+      setPhase((p) => (p === 'loading' || p === 'error' ? 'ready' : p));
     } catch (e) {
-      setPhase('error');
+      if (silent) showToast('최신 데이터를 못 불러왔어요');
+      else setPhase('error');
     }
   };
   useEffect(() => { if (phase === 'loading') load(); }, [phase]);
+  useEffect(() => { warm(); if (phase === 'ready' && data) load(true); }, []);
+  useEffect(() => { if (data) writeCache(data); }, [data]);
 
   // 자동 잠금
   useEffect(() => {
@@ -982,7 +986,9 @@ function App() {
     setPinBusy(false);
     if (r.ok) {
       setToken(r.token); setPinMsg('');
-      if (phase === 'relock' && data) { setPhase('ready'); load(); } else setPhase('loading');
+      if (r.data) { setData(r.data); setPhase('ready'); }
+      else if (data) { setPhase('ready'); load(true); }
+      else setPhase('loading');
     } else if (r.error === 'locked') setPinMsg(`여러 번 틀려서 ${r.wait}분 동안 잠겼어요`);
     else if (r.error === 'pin') setPinMsg('PIN이 맞지 않아요' + (r.left != null && r.left <= 2 ? ` (${r.left}번 남음)` : ''));
     else setPinMsg('연결에 실패했어요. 인터넷을 확인해 주세요.');
