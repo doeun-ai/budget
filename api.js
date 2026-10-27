@@ -9,17 +9,45 @@ export function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : loc
 // 앱을 열자마자 구글 서버를 미리 깨워두기 (PIN 누르는 동안 준비)
 export function warm() { if (!DEMO) fetch(API_URL).catch(() => {}); }
 
+// PIN을 이 기기에서 바로 확인하기 위한 값 (PIN 자체는 저장하지 않고 암호화된 값만)
+const LOCAL_PIN = 'budget.localPin';
+async function digest(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+export async function rememberPin(pin) {
+  try {
+    const salt = Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem(LOCAL_PIN, JSON.stringify({ salt, hash: await digest(salt + ':' + pin) }));
+  } catch (e) {}
+}
+export function forgetPin() { try { localStorage.removeItem(LOCAL_PIN); } catch (e) {} }
+// true: 맞음, false: 틀림, null: 이 기기에 저장된 값이 없음
+export async function checkPinLocal(pin) {
+  try {
+    const v = JSON.parse(localStorage.getItem(LOCAL_PIN) || 'null');
+    if (!v || !crypto.subtle) return null;
+    return (await digest(v.salt + ':' + pin)) === v.hash;
+  } catch (e) { return null; }
+}
+
 const CACHE_KEY = 'budget.cache';
 export function readCache() { try { const s = localStorage.getItem(CACHE_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
 export function writeCache(d) { try { d ? localStorage.setItem(CACHE_KEY, JSON.stringify(d)) : localStorage.removeItem(CACHE_KEY); } catch (e) {} }
 
 export async function call(action, payload = {}) {
   if (DEMO) return mock(action, payload);
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    body: JSON.stringify(Object.assign({ action, token: getToken() }, payload)),
-    redirect: 'follow'
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  let res;
+  try {
+    res = await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify(Object.assign({ action, token: getToken() }, payload)),
+      redirect: 'follow',
+      signal: ctrl.signal
+    });
+  } finally { clearTimeout(timer); }
   if (!res.ok) throw new Error('network');
   return res.json();
 }

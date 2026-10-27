@@ -1,5 +1,5 @@
 import { html, render, useState, useEffect, useRef } from './vendor/standalone.module.js';
-import { call, getToken, setToken, DEMO, warm, readCache, writeCache } from './api.js';
+import { call, getToken, setToken, DEMO, warm, readCache, writeCache, rememberPin, forgetPin, checkPinLocal } from './api.js';
 
 /* ───────── 공통 ───────── */
 
@@ -883,7 +883,7 @@ function Settings({ data, api, lockNow }) {
     let r;
     try { r = await call('changePin', { cur: pin.cur, next: v }); } catch (e) { r = { ok: false, error: 'network' }; }
     setBusy(false);
-    if (r.ok) { if (r.token) setToken(r.token); setPin(null); setNote('변경됨'); api.toast('PIN을 바꿨어요'); }
+    if (r.ok) { if (r.token) setToken(r.token); rememberPin(v); setPin(null); setNote('변경됨'); api.toast('PIN을 바꿨어요'); }
     else if (r.error === 'pin') setPin({ step: 'cur', cur: '', first: '', msg: '현재 PIN이 맞지 않아요' });
     else setPin({ step: 'cur', cur: '', first: '', msg: '연결에 실패했어요. 다시 시도해 주세요.' });
   };
@@ -949,7 +949,7 @@ function App() {
     try {
       const r = await call('load');
       if (!r.ok) {
-        if (r.error === 'auth') { setToken(''); setPhase('pin'); return; }
+        if (r.error === 'auth') { setToken(''); forgetPin(); setPhase('pin'); return; }
         throw new Error(r.error);
       }
       setData(r.data);
@@ -979,19 +979,32 @@ function App() {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
+  const fails = useRef(0);
   const login = async (pin) => {
+    // 1) 이 기기에서 바로 확인 → 저장된 화면을 즉시 보여주고 최신 데이터는 뒤에서 받기
+    if (getToken() && data) {
+      const ok = await checkPinLocal(pin);
+      if (ok === true) { fails.current = 0; setPinMsg(''); setPhase('ready'); load(true); return; }
+      if (ok === false) {
+        fails.current++;
+        if (fails.current < 5) { setPinMsg('PIN이 맞지 않아요' + (fails.current >= 3 ? ` (${5 - fails.current}번 남음)` : '')); return; }
+        // 5번 틀리면 서버에서 확인 (서버 잠금 규칙 적용)
+        forgetPin(); setToken(''); fails.current = 0;
+      }
+    }
+    // 2) 처음이거나 기기에 값이 없을 때만 서버에서 확인
     setPinBusy(true);
     let r;
     try { r = await call('login', { pin }); } catch (e) { r = { ok: false, error: 'network' }; }
     setPinBusy(false);
     if (r.ok) {
-      setToken(r.token); setPinMsg('');
+      setToken(r.token); setPinMsg(''); rememberPin(pin);
       if (r.data) { setData(r.data); setPhase('ready'); }
       else if (data) { setPhase('ready'); load(true); }
       else setPhase('loading');
     } else if (r.error === 'locked') setPinMsg(`여러 번 틀려서 ${r.wait}분 동안 잠겼어요`);
     else if (r.error === 'pin') setPinMsg('PIN이 맞지 않아요' + (r.left != null && r.left <= 2 ? ` (${r.left}번 남음)` : ''));
-    else setPinMsg('연결에 실패했어요. 인터넷을 확인해 주세요.');
+    else setPinMsg('연결이 느리거나 끊겼어요. 다시 눌러 주세요.');
   };
 
   const run = async (localFn, action, payload) => {
