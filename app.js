@@ -26,7 +26,7 @@ const CATS = [
   ['house', '주거비', '#2E9C7E'], ['fixed', '고정비', '#F08A00'], ['meet', '모임비', '#FFC85C'], ['life', '생활비', '#C7C7CC']
 ];
 const LINKABLE = { save: 1, invest: 1, use: 1 };
-const PALETTE = ['#E07BB0', '#9AA0A6', '#C2A000', '#8E7CF0', '#2E9C7E', '#0050C8', '#F08A00', '#64A8FF', '#7B61E8'];
+const PALETTE = ['#2E9C7E', '#64A8FF', '#0050C8', '#9AA0A6', '#3A3A3C', '#F08A00', '#7B61E8', '#E07BB0', '#C2A000'];
 
 const I = {
   back: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`,
@@ -125,7 +125,6 @@ function Spend({ data, api }) {
   const [q, setQ] = useState({ amt: null, cat: '약속', memo: '', date: '' });
   const [more, setMore] = useState(1);
   const [selCat, setSelCat] = useState(null);
-  const [selDay, setSelDay] = useState(null);
   const [tf, setTf] = useState('all');
   const [openId, setOpenId] = useState(null);
   const [edit, setEdit] = useState(null);
@@ -150,7 +149,7 @@ function Spend({ data, api }) {
   const moveMonth = (dm) => {
     let nm = m + dm, ny = y;
     if (nm < 1) { nm = 12; ny--; } if (nm > 12) { nm = 1; ny++; }
-    setYm([ny, nm]); setMore(1); setSelDay(null); setSelCat(null); setOpenId(null);
+    setYm([ny, nm]); setMore(1); setSelCat(null); setOpenId(null);
   };
 
   const add = () => {
@@ -184,25 +183,6 @@ function Spend({ data, api }) {
   const lowest = Math.max(1, upto - 7 * more + 1);
   const days = [];
   for (let d = upto; d >= lowest; d--) days.push(d);
-
-  // 달력
-  const first = new Date(y, m - 1, 1).getDay();
-  let overDays = 0, zeroDays = 0;
-  const cal = [];
-  for (let b = 0; b < first; b++) cal.push(html`<span></span>`);
-  for (let d = 1; d <= D; d++) {
-    const on = d === selDay;
-    const base = { width: '100%', height: '50px', border: 0, padding: 0, borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'none' };
-    if (d > upto) { cal.push(html`<span style=${Object.assign({}, base, { border: '1px dashed var(--line)', color: 'var(--faint)', fontSize: '12px' })}>${d}</span>`); continue; }
-    const v = dayTotal(d);
-    let st, amtColor;
-    if (v === 0) { zeroDays++; st = { background: 'var(--bg)', color: 'var(--muted)' }; amtColor = 'var(--muted)'; }
-    else if (v > 100000) { overDays++; st = { background: '#D92D20', color: '#fff', fontWeight: 700 }; amtColor = '#fff'; }
-    else if (v > daily) { overDays++; st = { background: 'var(--orange)', color: '#fff', fontWeight: 700 }; amtColor = '#fff'; }
-    else { st = { background: '#D6E6FF', color: '#0A3C80', fontWeight: 600 }; amtColor = '#0A3C80'; }
-    cal.push(html`<button type="button" aria-pressed=${on} aria-label=${`${m}월 ${d}일 ${v}원`} style=${Object.assign({}, base, st)} onClick=${() => setSelDay(selDay === d ? null : d)}>
-      <span style="font-size:12px;line-height:14px">${d}</span><span style=${{ fontSize: '10px', lineHeight: '12px', letterSpacing: '-0.03em', color: amtColor }}>${v ? man(v) : '0'}</span></button>`);
-  }
 
   // 추이: 최근 6개월
   const months = [];
@@ -244,7 +224,7 @@ function Spend({ data, api }) {
       <button type="button" class="btn" onClick=${add}>추가</button>
     </section>
 
-    <div style="margin-top:28px"><${Seg} opts=${[['list', '지출내역'], ['cat', '항목별'], ['cal', '달력'], ['trend', '추이']]} value=${view} onChange=${(v) => { setView(v); setOpenId(null); }} /></div>
+    <div style="margin-top:28px"><${Seg} opts=${[['list', '지출내역'], ['cat', '항목별'], ['trend', '추이']]} value=${view} onChange=${(v) => { setView(v); setOpenId(null); }} /></div>
 
     ${view === 'list' && html`<section class="card" style="margin-top:12px">
       ${upto === 0 ? html`<div class="empty">아직 기록이 없어요</div>` : days.map((d) => html`<div key=${d}>
@@ -277,25 +257,6 @@ function Spend({ data, api }) {
       </section>`;
     })()}`}
 
-    ${view === 'cal' && html`<section class="card" style="margin-top:12px;padding:16px 12px;display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;justify-content:space-between;padding:0 4px;font-size:13px;color:var(--text2)">
-        <span>하루 예산 넘은 날 <b style="color:var(--warn)">${overDays}일</b> / ${upto}일</span><span>무지출 <b>${zeroDays}일</b></span>
-      </div>
-      <div style="padding:0 4px" class="sub">${m}월 하루 예산 ${fmt(daily)}원 (${fmt(monthBudget)}원 ÷ ${D}일)</div>
-      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;font-size:11px;color:var(--muted);text-align:center">${WK.map((w) => html`<span>${w}</span>`)}</div>
-      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">${cal}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--text2);padding:2px 4px 0">
-        <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#D6E6FF"></span>하루 예산 이하</span>
-        <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--orange)"></span>초과</span>
-        <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#D92D20"></span>10만원 넘음</span>
-        <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--bg);border:1px solid var(--line)"></span>무지출</span>
-      </div>
-    </section>
-    ${selDay && html`<section class="card" style="margin-top:12px">
-      <div class="band" style="height:38px"><span>${dateLabel(selDay)}</span><span style=${totStyle(dayTotal(selDay))}>${fmt(dayTotal(selDay))}원</span></div>
-      ${(byDay[selDay] || []).map(catRow)}
-      ${(byDay[selDay] || []).length === 0 ? html`<div class="empty">지출 없음</div>` : ''}
-    </section>`}`}
 
     ${view === 'trend' && html`
       <div class="chips" style="margin-top:12px;grid-template-columns:repeat(6,minmax(0,1fr))">
@@ -388,6 +349,68 @@ function LifeSummary({ data }) {
   </section>`;
 }
 
+/* 이번 달 생활비 달력 (월 예산 탭) */
+function LifeCalendar({ data }) {
+  const [selDay, setSelDay] = useState(null);
+  const [stickerTry, setStickerTry] = useState(0); // sticker.png → sticker.jpg → 기본 별
+  const STICKERS = ['sticker.png', 'sticker.jpg'];
+  const stickerOk = stickerTry < STICKERS.length;
+  const sticker = (size) => stickerOk
+    ? html`<img src=${STICKERS[stickerTry]} alt="" onError=${() => setStickerTry((n) => n + 1)} style=${{ width: size + 'px', height: size + 'px', objectFit: 'contain', display: 'block' }} />`
+    : html`<svg width=${size} height=${size} viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.2 1.3-6.6L2.5 9.3l6.6-.8z" fill="#FFC53D" stroke="#E0A100" stroke-width="1" stroke-linejoin="round"/></svg>`;
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth() + 1;
+  const D = dimOf(y, m);
+  const upto = now.getDate();
+  const prefix = `${y}-${pad(m)}`;
+  const monthBudget = sum(data.items.filter((i) => i.cat === 'life'), (i) => i.amt);
+  const daily = Math.floor(monthBudget / D);
+  const byDay = {};
+  data.spend.filter((s) => s.date.startsWith(prefix)).forEach((r) => { const d = Number(r.date.slice(8)); (byDay[d] = byDay[d] || []).push(r); });
+  Object.keys(byDay).forEach((k) => byDay[k].reverse());
+  const dayTotal = (d) => sum(byDay[d] || [], (r) => r.amt);
+  const dateLabel = (d) => `${m}.${d} (${WK[new Date(y, m - 1, d).getDay()]})`;
+  const totStyle = (t) => ({ fontSize: '13px', fontWeight: 700, color: t > daily ? 'var(--warn)' : t === 0 ? 'var(--muted)' : 'var(--text2)' });
+  const first = new Date(y, m - 1, 1).getDay();
+  let goodDays = 0, zeroDays = 0;
+  const cal = [];
+  for (let b = 0; b < first; b++) cal.push(html`<span></span>`);
+  for (let d = 1; d <= D; d++) {
+    const on = d === selDay;
+    const base = { width: '100%', height: '60px', border: 0, padding: 0, borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0px', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'none' };
+    if (d > upto) { cal.push(html`<span style=${Object.assign({}, base, { border: '1px dashed var(--line)', color: 'var(--faint)' })}><span style="font-size:7px;line-height:9px;font-weight:600">${d}</span><span style="height:32px"></span><span style="height:9px"></span></span>`); continue; }
+    const v = dayTotal(d);
+    const good = v <= daily;
+    if (v === 0) zeroDays++;
+    if (good) goodDays++;
+    const st = good ? { background: '#fff', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'inset 0 0 0 1px #EFEFF3' }
+      : v > 50000 ? { background: '#FDE2E1', color: '#B42318' } : { background: '#ECECF0', color: '#6E6E73' };
+    cal.push(html`<button type="button" aria-pressed=${on} aria-label=${`${m}월 ${d}일 ${v}원${good ? ' 예산 지킴' : ''}`} style=${Object.assign({}, base, st)} onClick=${() => setSelDay(selDay === d ? null : d)}>
+      <span style=${{ fontSize: '7px', lineHeight: '9px', color: good ? 'var(--faint)' : 'inherit', fontWeight: 600 }}>${d}</span>
+      <span style="height:32px;display:flex;align-items:center;justify-content:center">${good ? sticker(32) : html`<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" stroke=${v > 50000 ? '#EBA8A4' : '#C7C7CC'} stroke-width="1.4" stroke-linecap="round"/></svg>`}</span>
+      <span style=${{ fontSize: '7px', lineHeight: '9px', letterSpacing: '-0.03em', fontWeight: 600, color: good ? 'var(--text2)' : 'inherit' }}>${v ? man(v) : '무지출'}</span></button>`);
+  }
+  const rows = selDay ? byDay[selDay] || [] : [];
+  return html`<section class="card" style="padding:16px 12px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;padding:0 4px;font-size:13px;color:var(--text2)">
+        <span>예산 지킨 날 <b style="color:#E2558A">${goodDays}일</b> / ${upto}일</span><span>무지출 <b>${zeroDays}일</b></span>
+      </div>
+      <div style="padding:0 4px" class="sub">하루 예산 ${fmt(daily)}원 (${fmt(monthBudget)}원 ÷ ${D}일)</div>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;font-size:11px;color:var(--muted);text-align:center">${WK.map((w) => html`<span>${w}</span>`)}</div>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">${cal}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--text2);padding:2px 4px 0">
+        <span class="row" style="gap:5px">${sticker(14)}예산 지킨 날</span>
+        <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#ECECF0"></span>초과</span>
+        <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#FDE2E1"></span>5만원 넘음</span>
+      </div>
+      ${selDay && html`<div style="margin:4px -12px -16px;border-top:0.5px solid var(--line)">
+        <div class="band" style="height:38px;border-top:0"><span>${dateLabel(selDay)}</span><span style=${totStyle(dayTotal(selDay))}>${fmt(dayTotal(selDay))}원</span></div>
+        ${rows.map((r) => html`<div class="line"><span style="width:48px;flex:none;font-size:15px;font-weight:600">${r.cat}</span><span class="ell" style="flex:1;font-size:14px;color:var(--muted)">${r.memo}</span><span style="font-size:15px;font-weight:600">${fmt(r.amt)}</span></div>`)}
+        ${rows.length === 0 ? html`<div class="empty">지출 없음</div>` : ''}
+      </div>`}
+    </section>`;
+}
+
 /* ───────── ② 월 예산 ───────── */
 
 function Budget({ data, api }) {
@@ -466,6 +489,9 @@ function Budget({ data, api }) {
     <h1 class="h1">월 예산</h1>
 
     <${LifeSummary} data=${data} />
+
+    <h2 class="h2">생활비 달력</h2>
+    <${LifeCalendar} data=${data} />
 
     <h2 class="h2" style="display:flex;justify-content:space-between"><span>월급 배분</span><span>${lastEdit ? lastEdit + ' 수정' : ''}</span></h2>
     <section class="card pad" style="gap:16px">
@@ -663,8 +689,8 @@ function Assets({ data, api, goCheck }) {
   const saveBucket = () => {
     const s = sheet;
     if (!s.name.trim()) { api.toast('버킷 이름을 입력해 주세요'); return; }
-    if (s.id) api.upsert('buckets', Object.assign({}, buckets.find((b) => b.id === s.id), { name: s.name.trim(), when: s.when.trim() }));
-    else api.upsert('buckets', { id: newId('b'), name: s.name.trim(), color: PALETTE[buckets.length % PALETTE.length], when: s.when.trim(), exclude: false, order: Math.max(0, ...buckets.map((b) => b.order || 0)) + 1 });
+    if (s.id) api.upsert('buckets', Object.assign({}, buckets.find((b) => b.id === s.id), { name: s.name.trim(), when: s.when.trim(), color: s.color }));
+    else api.upsert('buckets', { id: newId('b'), name: s.name.trim(), color: s.color, when: s.when.trim(), exclude: false, order: Math.max(0, ...buckets.map((b) => b.order || 0)) + 1 });
     setSheet(null);
   };
   const saveAccount = () => {
@@ -718,7 +744,7 @@ function Assets({ data, api, goCheck }) {
         const has = target > 0;
         const pc = has ? Math.min(100, Math.floor(c / target * 100)) : 0;
         const isOpen = openBucket === b.id;
-        const acts = [{ label: '수정', cls: 'b-blue', on: () => setSheet({ kind: 'bucket', id: b.id, name: b.name, when: b.when || '' }) }];
+        const acts = [{ label: '수정', cls: 'b-blue', on: () => setSheet({ kind: 'bucket', id: b.id, name: b.name, when: b.when || '', color: b.color }) }];
         if (!list.length) acts.push({ label: '삭제', cls: 'b-red', on: () => api.remove('buckets', b.id) });
         return html`<div style="border-bottom:0.5px solid var(--line)">
           <${Swipe} id=${'b:' + b.id} openId=${openId} setOpenId=${setOpenId} fgClass="" fgStyle=${{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 16px', cursor: 'pointer' }}
@@ -740,7 +766,7 @@ function Assets({ data, api, goCheck }) {
           </div>`}
         </div>`;
       })}
-      <button type="button" class="addrow" onClick=${() => setSheet({ kind: 'bucket', id: null, name: '', when: '' })}>+ 버킷 추가</button>
+      <button type="button" class="addrow" onClick=${() => setSheet({ kind: 'bucket', id: null, name: '', when: '', color: PALETTE[buckets.length % PALETTE.length] })}>+ 버킷 추가</button>
     </section>
 
     <h2 class="h2">점검별 추이 (만원)</h2>
@@ -784,6 +810,7 @@ function Assets({ data, api, goCheck }) {
     ${sheet && sheet.kind === 'bucket' && html`<${Sheet} title=${sheet.id ? '버킷 수정' : '버킷 추가'} onClose=${() => setSheet(null)} onSave=${saveBucket}>
       <label class="field"><span>버킷 이름</span><input class="lg" type="text" placeholder="예: 여행자금" value=${sheet.name} onInput=${(e) => setSheet(Object.assign({}, sheet, { name: e.target.value }))} /></label>
       <label class="field"><span>목표 시점 (선택)</span><input type="text" placeholder="예: 29.12" value=${sheet.when} onInput=${(e) => setSheet(Object.assign({}, sheet, { when: e.target.value }))} /></label>
+      <div class="field"><span>색</span><div class="wrap" style="gap:10px">${PALETTE.map((c) => html`<button type="button" aria-label=${'색 ' + c} aria-pressed=${sheet.color === c} onClick=${() => setSheet(Object.assign({}, sheet, { color: c }))} style=${{ width: '32px', height: '32px', borderRadius: '16px', border: 0, background: c, boxShadow: sheet.color === c ? '0 0 0 2px #fff, 0 0 0 4px #1C1C1E' : 'none' }}></button>`)}</div></div>
     <//>`}
     ${sheet && sheet.kind === 'account' && html`<${Sheet} title=${sheet.id ? '계좌 수정' : '계좌 추가'} onClose=${() => setSheet(null)} onSave=${saveAccount}>
       <label class="field"><span>계좌 이름</span><input class="lg" type="text" placeholder="예: 파킹통장" value=${sheet.name} onInput=${(e) => setSheet(Object.assign({}, sheet, { name: e.target.value }))} /></label>

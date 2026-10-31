@@ -94,11 +94,11 @@ function demoSeed() {
     items,
     spend: sp,
     buckets: [
-      { id: 'b1', name: '사용적금', color: '#7B61E8', when: '', exclude: false, order: 1 },
-      { id: 'b2', name: '비상자금', color: '#F08A00', when: '', exclude: false, order: 2 },
+      { id: 'b1', name: '사용적금', color: '#2E9C7E', when: '', exclude: false, order: 1 },
+      { id: 'b2', name: '비상자금', color: '#64A8FF', when: '', exclude: false, order: 2 },
       { id: 'b3', name: '33세까지 쓰지마', color: '#0050C8', when: '', exclude: false, order: 3 },
-      { id: 'b4', name: '주거자금', color: '#2E9C7E', when: '', exclude: false, order: 4 },
-      { id: 'b5', name: '노후자금', color: '#64A8FF', when: '', exclude: true, order: 5 }
+      { id: 'b4', name: '주거자금', color: '#9AA0A6', when: '', exclude: false, order: 4 },
+      { id: 'b5', name: '노후자금', color: '#3A3A3C', when: '', exclude: true, order: 5 }
     ],
     accounts: [
       { id: 'a1', name: '리프레쉬적금', bucket: 'b1', target: 50, due: '27.04', closed: false, order: 1 },
