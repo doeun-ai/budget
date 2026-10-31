@@ -180,10 +180,17 @@ function Spend({ data, api }) {
 
   const add = () => {
     if (!q.amt) { api.toast('금액을 입력해 주세요'); return; }
-    api.upsert('spend', { id: newId('s'), date: q.date || todayStr(), cat: q.cat, amt: q.amt, memo: q.memo.trim(), created: '' });
+    const t = new Date();
+    const stamp = `${ymd(t)} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+    api.upsert('spend', { id: newId('s'), date: q.date || todayStr(), cat: q.cat, amt: q.amt, memo: q.memo.trim(), created: stamp });
     const dt = q.date || todayStr();
     setQ({ amt: null, cat: q.cat, memo: '', date: '' });
-    if (!dt.startsWith(prefix)) setYm([Number(dt.slice(0, 4)), Number(dt.slice(5, 7))]);
+    // 다른 날짜로 넣었으면 그 달로 이동하고, 그 날짜가 목록에 보이도록 펼치기
+    const ty = Number(dt.slice(0, 4)), tm = Number(dt.slice(5, 7)), td = Number(dt.slice(8, 10));
+    const tk = ymKey(ty, tm);
+    const tUpto = tk === nowYm() ? new Date().getDate() : tk < nowYm() ? dimOf(ty, tm) : 0;
+    if (!dt.startsWith(prefix)) setYm([ty, tm]);
+    if (td <= tUpto) setMore(Math.max(1, Math.ceil((tUpto - td + 1) / 7)));
   };
 
   const row = (r, left) => html`<${Swipe} key=${r.id} id=${r.id} openId=${openId} setOpenId=${setOpenId}
@@ -207,7 +214,8 @@ function Spend({ data, api }) {
 
   // 지출내역
   const lowest = Math.max(1, upto - 7 * more + 1);
-  const days = [];
+  // 오늘 이후 날짜로 미리 넣은 기록도 맨 위에 보이게
+  const days = Object.keys(byDay).map(Number).filter((d) => d > upto).sort((a, b) => b - a);
   for (let d = upto; d >= lowest; d--) days.push(d);
 
   // 추이: 최근 6개월
@@ -272,7 +280,7 @@ function Spend({ data, api }) {
     })()}
 
     ${view === 'list' && !search.trim() && html`<section class="card" style="margin-top:12px">
-      ${upto === 0 ? html`<div class="empty">아직 기록이 없어요</div>` : days.map((d) => html`<div key=${d}>
+      ${days.length === 0 ? html`<div class="empty">아직 기록이 없어요</div>` : days.map((d) => html`<div key=${d}>
         <div class="band"><span>${dateLabel(d)}</span><span style=${totStyle(dayTotal(d))}>${fmt(dayTotal(d))}원</span></div>
         ${(byDay[d] || []).map(catRow)}
       </div>`)}
@@ -895,6 +903,42 @@ function Assets({ data, api, goCheck }) {
   </div>`;
 }
 
+const assetLockMode = () => { try { return localStorage.getItem('budget.assetLock') || 'button'; } catch (e) { return 'button'; } };
+
+/* 자산 탭 추가 잠금 (탭 안에서만, 다른 탭은 바로 이동 가능) */
+function AssetGate({ onUnlock }) {
+  const [v, setV] = useState('');
+  const [msg, setMsg] = useState('');
+  const [shake, setShake] = useState(false);
+  const tryPin = async (pin) => {
+    let ok = await checkPinLocal(pin);
+    if (ok === null) { try { const r = await call('login', { pin }); ok = !!r.ok; if (r.ok) { setToken(r.token); rememberPin(pin); } } catch (e) { ok = false; } }
+    if (ok) onUnlock();
+    else { setMsg('PIN이 맞지 않아요'); setShake(true); setTimeout(() => setShake(false), 400); }
+    setV('');
+  };
+  const press = (k) => {
+    if (k === 'del') { setV(v.slice(0, -1)); return; }
+    if (v.length >= 4) return;
+    const nv = v + k; setV(nv); setMsg('');
+    if (nv.length === 4) setTimeout(() => tryPin(nv), 120);
+  };
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
+  return html`<div class="page">
+    <div class="topbar"></div>
+    <h1 class="h1">자산 현황</h1>
+    <section class="card" style="padding:20px 16px 18px;display:flex;flex-direction:column;align-items:center;gap:12px">
+      <span style="width:44px;height:44px;border-radius:22px;background:var(--bg);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3A3A3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+      <span style="font-size:16px;font-weight:700">PIN을 한 번 더 입력해 주세요</span>
+      <div class=${'row' + (shake ? ' shake' : '')} style="gap:16px">${[0, 1, 2, 3].map((i) => html`<span style=${{ width: '12px', height: '12px', borderRadius: '6px', border: '1.5px solid ' + (i < v.length ? 'var(--text)' : '#AEAEB2'), background: i < v.length ? 'var(--text)' : 'transparent' }}></span>`)}</div>
+      <span style="font-size:13px;min-height:18px;color:var(--red)">${msg}</span>
+      <div style="display:grid;grid-template-columns:repeat(3,60px);gap:10px 22px;justify-content:center">
+        ${keys.map((k) => k === '' ? html`<span></span>` : html`<button type="button" aria-label=${k === 'del' ? '지우기' : k} onClick=${() => press(k)} style=${{ width: '60px', height: '60px', borderRadius: '30px', border: 0, fontSize: k === 'del' ? '20px' : '26px', fontWeight: 500, background: k === 'del' ? 'transparent' : 'var(--bg)' }}>${k === 'del' ? '⌫' : k}</button>`)}
+      </div>
+    </section>
+  </div>`;
+}
+
 /* ───────── ④ 자산 점검 ───────── */
 
 function Checkup({ data, api, onDone, onCancel }) {
@@ -1064,6 +1108,7 @@ function App() {
   const [data, setData] = useState(() => readCache());
   const [tab, setTab] = useState('spend');
   const [checkup, setCheckup] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false); // 앱이 잠기면 다시 닫힘
   const [pinMsg, setPinMsg] = useState('');
   const [pinBusy, setPinBusy] = useState(false);
   const [toast, setToast] = useState('');
@@ -1172,7 +1217,8 @@ function App() {
     saveCheck: (date, entries) => run((d) => { d.checks = d.checks.filter((c) => c.date !== date).concat(entries.map((e) => ({ date, accountId: e.accountId, amount: e.amount }))); d.config.acctChanged = false; return d; }, 'saveCheck', { date, entries })
   };
 
-  const goTab = (t) => { setCheckup(false); setTab(t); window.scrollTo(0, 0); };
+  const goTab = (t) => { setCheckup(false); setTab(t); if (t !== 'assets') setAssetsOpen(false); window.scrollTo(0, 0); };
+  useEffect(() => { if (phase !== 'ready') setAssetsOpen(false); }, [phase]);
 
   if (phase === 'pin' || phase === 'relock') {
     return html`<${PinPad} title=${phase === 'relock' ? 'PIN 입력' : '가계부 PIN 입력'} msg=${pinMsg} busy=${pinBusy} onDone=${login} />`;
@@ -1186,6 +1232,17 @@ function App() {
     ? html`<${Checkup} data=${data} api=${api} onDone=${() => { setCheckup(false); window.scrollTo(0, 0); }} onCancel=${() => { setCheckup(false); window.scrollTo(0, 0); }} />`
     : tab === 'spend' ? html`<${Spend} data=${data} api=${api} />`
       : tab === 'budget' ? html`<${Budget} data=${data} api=${api} />`
+              : tab === 'assets' && !assetsOpen && assetLockMode() === 'button' ? html`<div style="position:relative">
+          <div aria-hidden="true" style="filter:blur(14px);pointer-events:none;user-select:none;-webkit-user-select:none"><${Assets} data=${data} api=${api} goCheck=${() => {}} /></div>
+          <div style="position:absolute;left:16px;right:16px;top:calc(var(--safe-t) + 150px);display:flex;justify-content:center">
+            <div class="card" style="padding:22px 20px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 8px 30px rgba(0,0,0,0.12);width:100%;max-width:300px">
+              <span style="width:44px;height:44px;border-radius:22px;background:var(--bg);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3A3A3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+              <span style="font-size:15px;color:var(--text2)">자산 금액이 가려져 있어요</span>
+              <button type="button" class="btn" style="height:44px" onClick=${() => setAssetsOpen(true)}>자산 보기</button>
+            </div>
+          </div>
+        </div>`
+      : tab === 'assets' && !assetsOpen && assetLockMode() === 'pin' ? html`<${AssetGate} onUnlock=${() => setAssetsOpen(true)} />`
         : tab === 'assets' ? html`<${Assets} data=${data} api=${api} goCheck=${() => { setCheckup(true); window.scrollTo(0, 0); }} />`
           : html`<${Settings} data=${data} api=${api} lockNow=${() => setPhase('relock')} />`;
 
