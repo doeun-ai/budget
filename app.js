@@ -203,7 +203,7 @@ function Spend({ data, api }) {
 
   // 요약
   const bDiff = monthBudget - spent;
-  const pDiff = Math.floor(monthBudget * upto / D) - spent;
+  const pDiff = Math.floor(monthBudget * upto / D) - sum(rows.filter((r) => Number(r.date.slice(8)) <= upto), (r) => r.amt);
   const box = (over) => ({ box: { borderRadius: '12px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '2px', background: over ? 'var(--warn-bg)' : 'var(--blue-bg)' }, lab: { fontSize: '12px', color: over ? 'var(--warn)' : '#0A3C80' }, val: { fontSize: '17px', fontWeight: 700, color: over ? 'var(--warn)' : 'var(--blue-d)' } });
   const bb = box(bDiff < 0), pb = box(pDiff < 0);
   const left = D - upto;
@@ -373,7 +373,8 @@ function LifeSummary({ data, ym }) {
   const spent = sum(data.spend.filter((s) => s.date.startsWith(ym)), (r) => r.amt);
   const daily = Math.floor(monthBudget / D);
   const bDiff = monthBudget - spent;
-  const pDiff = Math.floor(monthBudget * upto / D) - spent;
+  const spentToDate = sum(data.spend.filter((s) => s.date.startsWith(ym) && Number(s.date.slice(8)) <= upto), (r) => r.amt);
+  const pDiff = Math.floor(monthBudget * upto / D) - spentToDate; // 미래 날짜로 미리 적은 건 빼고 오늘까지만
   const box = (over) => ({ box: { borderRadius: '12px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '2px', background: over ? 'var(--warn-bg)' : 'var(--blue-bg)' }, lab: { fontSize: '12px', color: over ? 'var(--warn)' : '#0A3C80' }, val: { fontSize: '17px', fontWeight: 700, color: over ? 'var(--warn)' : 'var(--blue-d)' } });
   const bb = box(bDiff < 0), pb = box(pDiff < 0), nb = box(false);
   const left = D - upto;
@@ -436,7 +437,17 @@ function LifeCalendar({ data, ym }) {
   for (let d = 1; d <= D; d++) {
     const on = d === selDay;
     const base = { width: '100%', height: '60px', border: 0, padding: 0, borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0px', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'none' };
-    if (d > upto) { cal.push(html`<span style=${Object.assign({}, base, { border: '1px dashed var(--line)', color: 'var(--faint)' })}><span style="font-size:7px;line-height:9px;font-weight:600">${d}</span><span style="height:32px"></span><span style="height:9px"></span></span>`); continue; }
+    if (d > upto) {
+      // 미래 날짜: 점선 유지. 미리 적어둔 지출이 있으면 금액 표시, 예산을 넘으면 칸 색만 바뀜
+      const fv = dayTotal(d);
+      const fill = fv > 50000 ? '#FDE2E1' : fv > daily ? '#ECECF0' : 'transparent';
+      const fcol = fv > 50000 ? '#B42318' : fv > daily ? '#6E6E73' : 'var(--faint)';
+      const fs = Object.assign({}, base, { border: '1px dashed ' + (fv > daily ? '#D1D1D6' : 'var(--line)'), background: fill, color: fcol });
+      cal.push(fv
+        ? html`<button type="button" aria-pressed=${on} aria-label=${`${m}월 ${d}일 미리 기록 ${fv}원`} style=${fs} onClick=${() => setSelDay(selDay === d ? null : d)}><span style="font-size:7px;line-height:9px;font-weight:600">${d}</span><span style="height:32px"></span><span style="font-size:7px;line-height:9px;font-weight:600">${man(fv)}</span></button>`
+        : html`<span style=${fs}><span style="font-size:7px;line-height:9px;font-weight:600">${d}</span><span style="height:32px"></span><span style="height:9px"></span></span>`);
+      continue;
+    }
     const v = dayTotal(d);
     const isToday = cur && d === upto;
     // 오늘은 아직 안 끝났으니 스티커 보류 (이미 예산을 넘었으면 바로 표시)
@@ -1232,13 +1243,13 @@ function App() {
     ? html`<${Checkup} data=${data} api=${api} onDone=${() => { setCheckup(false); window.scrollTo(0, 0); }} onCancel=${() => { setCheckup(false); window.scrollTo(0, 0); }} />`
     : tab === 'spend' ? html`<${Spend} data=${data} api=${api} />`
       : tab === 'budget' ? html`<${Budget} data=${data} api=${api} />`
-              : tab === 'assets' && !assetsOpen && assetLockMode() === 'button' ? html`<div style="position:relative">
+              : tab === 'assets' && !assetsOpen && assetLockMode() === 'button' ? html`<div style="height:100vh;height:100dvh;overflow:hidden;touch-action:none" onTouchMove=${(e) => e.preventDefault()}>
           <div aria-hidden="true" style="filter:blur(14px);pointer-events:none;user-select:none;-webkit-user-select:none"><${Assets} data=${data} api=${api} goCheck=${() => {}} /></div>
-          <div style="position:absolute;left:16px;right:16px;top:calc(var(--safe-t) + 150px);display:flex;justify-content:center">
+          <div style="position:fixed;left:0;right:0;top:0;bottom:calc(64px + var(--safe-b));display:flex;align-items:center;justify-content:center;padding:0 16px;z-index:5">
             <div class="card" style="padding:22px 20px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 8px 30px rgba(0,0,0,0.12);width:100%;max-width:300px">
               <span style="width:44px;height:44px;border-radius:22px;background:var(--bg);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3A3A3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
               <span style="font-size:15px;color:var(--text2)">자산 금액이 가려져 있어요</span>
-              <button type="button" class="btn" style="height:44px" onClick=${() => setAssetsOpen(true)}>자산 보기</button>
+              <button type="button" class="btn" style="height:44px" onClick=${() => { setAssetsOpen(true); window.scrollTo(0, 0); }}>자산 보기</button>
             </div>
           </div>
         </div>`
