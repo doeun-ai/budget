@@ -18,7 +18,19 @@ const newId = (p) => p + Date.now().toString(36).slice(-5) + Math.random().toStr
 const byOrder = (a, b) => (a.order || 0) - (b.order || 0);
 const diffDays = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
 
-const LIFE = ['약속', '생활', '기타', '관리', '경조사'];
+// 월(YYYY-MM)별 예산: 항목마다 from(시작 달)~to(끝 달). 비어 있으면 처음부터/계속
+const ymKey = (y, m) => `${y}-${pad(m)}`;
+const addYm = (k, n) => { let y = Number(k.slice(0, 4)), m = Number(k.slice(5, 7)) + n; while (m < 1) { m += 12; y--; } while (m > 12) { m -= 12; y++; } return ymKey(y, m); };
+const activeIn = (items, k) => items.filter((x) => (!x.from || x.from <= k) && (!x.to || x.to >= k));
+const nowYm = () => { const t = new Date(); return ymKey(t.getFullYear(), t.getMonth() + 1); };
+const MIN_YM = () => addYm(nowYm(), -12);
+const MAX_YM = () => addYm(nowYm(), 3);
+const lifeBudgetOf = (data, k) => { const a = activeIn(data.items, k).filter((i) => i.cat === 'life'); return LIFE_NAMES.map((n) => ({ name: n, amt: (a.find((i) => i.name === n) || { amt: 0 }).amt })); };
+const incomeOf = (data, k) => { const a = activeIn(data.items, k).find((i) => i.cat === 'income'); return a ? a.amt : data.config.income; };
+const ymLabel = (k) => `${Number(k.slice(0, 4))}년 ${Number(k.slice(5, 7))}월`;
+
+const LIFE_NAMES = ['약속', '생활', '기타', '관리', '경조사'];
+const LIFE = LIFE_NAMES;
 const LIFE_DESC = { 약속: '약속 · 외식 · 배달 · 카페', 생활: '식비 · 마트 · 생필품', 기타: '', 관리: '옷 · 화장품 · 피부 · 운동', 경조사: '' };
 const LIFE_COLOR = { 약속: '#0062CC', 생활: '#2E9C7E', 기타: '#8E7CF0', 관리: '#E07BB0', 경조사: '#9AA0A6' };
 const CATS = [
@@ -91,6 +103,19 @@ function Seg({ opts, value, onChange, cols, sm }) {
   </div>`;
 }
 
+function MonthNav({ ym, setYm, after }) {
+  const btn = 'width:44px;height:44px;padding:0;display:flex;align-items:center;justify-content:center';
+  const canPrev = ym > MIN_YM(), canNext = ym < MAX_YM();
+  return html`<div class="topbar" style="padding:0">
+    <div class="row" style="gap:2px">
+      <button type="button" class="link" aria-label="이전 달" disabled=${!canPrev} style=${btn + (canPrev ? '' : ';opacity:0.25')} onClick=${() => canPrev && setYm(addYm(ym, -1))}>${I.back}</button>
+      <span style="font-size:17px;font-weight:600">${ymLabel(ym)}</span>
+      <button type="button" class="link" aria-label="다음 달" disabled=${!canNext} style=${btn + (canNext ? '' : ';opacity:0.25')} onClick=${() => canNext && setYm(addYm(ym, 1))}>${I.next}</button>
+    </div>
+    ${ym !== nowYm() ? html`<button type="button" class="link" style="font-size:15px" onClick=${() => setYm(nowYm())}>이번 달</button>` : after || ''}
+  </div>`;
+}
+
 function PinPad({ title, msg, onDone, onCancel, busy }) {
   const [v, setV] = useState('');
   const [shake, setShake] = useState(false);
@@ -128,6 +153,7 @@ function Spend({ data, api }) {
   const [tf, setTf] = useState('all');
   const [openId, setOpenId] = useState(null);
   const [edit, setEdit] = useState(null);
+  const [search, setSearch] = useState('');
 
   const [y, m] = ym;
   const prefix = `${y}-${pad(m)}`;
@@ -135,7 +161,7 @@ function Spend({ data, api }) {
   const isCur = y === now.getFullYear() && m === now.getMonth() + 1;
   const isPast = y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth() + 1);
   const upto = isCur ? now.getDate() : isPast ? D : 0;
-  const budgets = LIFE.map((n) => ({ name: n, amt: (data.items.find((i) => i.cat === 'life' && i.name === n) || { amt: 0 }).amt }));
+  const budgets = lifeBudgetOf(data, ymKey(y, m));
   const monthBudget = sum(budgets, (b) => b.amt);
   const rows = data.spend.filter((s) => s.date.startsWith(prefix));
   const byDay = {};
@@ -147,9 +173,9 @@ function Spend({ data, api }) {
   const dateLabel = (d) => `${m}.${d} (${WK[new Date(y, m - 1, d).getDay()]})`;
 
   const moveMonth = (dm) => {
-    let nm = m + dm, ny = y;
-    if (nm < 1) { nm = 12; ny--; } if (nm > 12) { nm = 1; ny++; }
-    setYm([ny, nm]); setMore(1); setSelCat(null); setOpenId(null);
+    const k = addYm(ymKey(y, m), dm);
+    if (k < MIN_YM() || k > MAX_YM()) return;
+    setYm([Number(k.slice(0, 4)), Number(k.slice(5, 7))]); setMore(1); setSelCat(null); setOpenId(null);
   };
 
   const add = () => {
@@ -226,7 +252,26 @@ function Spend({ data, api }) {
 
     <div style="margin-top:28px"><${Seg} opts=${[['list', '지출내역'], ['cat', '항목별'], ['trend', '추이']]} value=${view} onChange=${(v) => { setView(v); setOpenId(null); }} /></div>
 
-    ${view === 'list' && html`<section class="card" style="margin-top:12px">
+    ${view === 'list' && html`<label class="row" style="margin-top:12px;background:#fff;border-radius:12px;padding:0 12px;height:42px;gap:8px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input type="search" placeholder="항목·메모·금액 검색" aria-label="지출 검색" value=${search} onInput=${(e) => setSearch(e.target.value)} style="flex:1;min-width:0;border:0;outline:none;background:transparent;font-size:15px;height:40px" />
+      ${search && html`<button type="button" aria-label="검색어 지우기" onClick=${() => setSearch('')} style="border:0;background:#C7C7CC;color:#fff;width:18px;height:18px;border-radius:9px;font-size:12px;line-height:18px;padding:0">✕</button>`}
+    </label>`}
+
+    ${view === 'list' && search.trim() && (() => {
+      // 항목·메모는 글자가 들어 있으면, 금액은 숫자가 정확히 같을 때만 (전체 기간)
+      const qv = search.trim().toLowerCase();
+      const num = /^[0-9,]+원?$/.test(qv) ? Number(qv.replace(/[^0-9]/g, '')) : null;
+      const hits = data.spend.filter((r) => (num !== null && r.amt === num) || r.cat.toLowerCase().includes(qv) || (r.memo || '').toLowerCase().includes(qv))
+        .sort((a, b) => (a.date === b.date ? (a.created < b.created ? 1 : -1) : a.date < b.date ? 1 : -1));
+      return html`<section class="card" style="margin-top:12px">
+        <div class="band" style="height:38px;border-top:0"><span>검색 결과 ${hits.length}건</span><span>${fmt(sum(hits, (r) => r.amt))}원</span></div>
+        ${hits.slice(0, 200).map((r) => row(r, html`<span style="width:58px;flex:none;font-size:12px;color:var(--muted)">${short(r.date).slice(0, 8)}</span><span style="width:40px;flex:none;font-size:14px;font-weight:600">${r.cat}</span><span class="ell" style="flex:1;font-size:14px;color:var(--muted)">${r.memo}</span>`))}
+        ${hits.length === 0 ? html`<div class="empty">찾는 기록이 없어요</div>` : ''}
+      </section>`;
+    })()}
+
+    ${view === 'list' && !search.trim() && html`<section class="card" style="margin-top:12px">
       ${upto === 0 ? html`<div class="empty">아직 기록이 없어요</div>` : days.map((d) => html`<div key=${d}>
         <div class="band"><span>${dateLabel(d)}</span><span style=${totStyle(dayTotal(d))}>${fmt(dayTotal(d))}원</span></div>
         ${(byDay[d] || []).map(catRow)}
@@ -310,27 +355,28 @@ function Spend({ data, api }) {
 }
 
 /* 이번 달 생활비 요약 (월 예산 탭 맨 위) */
-function LifeSummary({ data }) {
+function LifeSummary({ data, ym }) {
   const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth() + 1;
+  const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
   const D = dimOf(y, m);
-  const upto = now.getDate();
-  const prefix = `${y}-${pad(m)}`;
-  const monthBudget = sum(data.items.filter((i) => i.cat === 'life'), (i) => i.amt);
-  const spent = sum(data.spend.filter((s) => s.date.startsWith(prefix)), (r) => r.amt);
+  const cur = ym === nowYm(), past = ym < nowYm();
+  const upto = cur ? now.getDate() : past ? D : 0;
+  const monthBudget = sum(lifeBudgetOf(data, ym), (b) => b.amt);
+  const spent = sum(data.spend.filter((s) => s.date.startsWith(ym)), (r) => r.amt);
   const daily = Math.floor(monthBudget / D);
   const bDiff = monthBudget - spent;
   const pDiff = Math.floor(monthBudget * upto / D) - spent;
   const box = (over) => ({ box: { borderRadius: '12px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '2px', background: over ? 'var(--warn-bg)' : 'var(--blue-bg)' }, lab: { fontSize: '12px', color: over ? 'var(--warn)' : '#0A3C80' }, val: { fontSize: '17px', fontWeight: 700, color: over ? 'var(--warn)' : 'var(--blue-d)' } });
-  const bb = box(bDiff < 0), pb = box(pDiff < 0);
+  const bb = box(bDiff < 0), pb = box(pDiff < 0), nb = box(false);
   const left = D - upto;
-  const restText = left === 0 ? '오늘이 이번 달 마지막 날이에요'
-    : bDiff <= 0 ? `예산을 이미 다 썼어요. 남은 ${left}일은 아껴봐요`
-      : `남은 ${left}일은 하루 ${fmt(Math.floor(bDiff / left))}원까지 쓸 수 있어요`;
+  const restText = !cur ? (past ? `하루 평균 ${fmt(spent / D)}원 썼어요` : '아직 시작 전인 달이에요')
+    : left === 0 ? '오늘이 이번 달 마지막 날이에요'
+      : bDiff <= 0 ? `예산을 이미 다 썼어요. 남은 ${left}일은 아껴봐요`
+        : `남은 ${left}일은 하루 ${fmt(Math.floor(bDiff / left))}원까지 쓸 수 있어요`;
   return html`<section class="card pad">
     <div style="display:flex;align-items:flex-end;justify-content:space-between">
       <div style="display:flex;flex-direction:column;gap:4px">
-        <span class="lbl">이번 달 생활비 쓴 돈</span>
+        <span class="lbl">${cur ? '이번 달' : m + '월'} 생활비 쓴 돈</span>
         <span class="big">${fmt(spent)}<small>원</small></span>
       </div>
       <span style="font-size:14px;color:var(--muted);padding-bottom:6px">/ ${fmt(monthBudget)}</span>
@@ -339,18 +385,20 @@ function LifeSummary({ data }) {
       <div style=${{ position: 'absolute', left: 0, top: 0, bottom: 0, width: Math.min(100, monthBudget ? Math.floor(spent / monthBudget * 100) : 0) + '%', background: bDiff < 0 ? 'var(--orange)' : 'var(--blue)' }}></div>
     </div>
     <div class="grid2">
-      <div style=${bb.box}><span style=${bb.lab}>이번 달 생활비</span><span style=${bb.val}>${fmt(Math.abs(bDiff))}원 ${bDiff < 0 ? '초과' : '남음'}</span></div>
-      <div style=${pb.box}><span style=${pb.lab}>오늘(${upto}일) 현황</span><span style=${pb.val}>${fmt(Math.abs(pDiff))}원 ${pDiff < 0 ? '초과' : '남음'}</span></div>
+      <div style=${bb.box}><span style=${bb.lab}>${cur ? '이번 달' : m + '월'} 생활비</span><span style=${bb.val}>${fmt(Math.abs(bDiff))}원 ${bDiff < 0 ? '초과' : '남음'}</span></div>
+      ${cur
+        ? html`<div style=${pb.box}><span style=${pb.lab}>오늘(${upto}일) 현황</span><span style=${pb.val}>${fmt(Math.abs(pDiff))}원 ${pDiff < 0 ? '초과' : '남음'}</span></div>`
+        : html`<div style=${nb.box}><span style=${nb.lab}>하루 예산</span><span style=${nb.val}>${fmt(daily)}원</span></div>`}
     </div>
     <div class="row" style="gap:8px;font-size:13px;color:var(--text2)">
-      <span style="flex:none;font-size:12px;font-weight:700;background:var(--bg);border-radius:6px;padding:3px 7px">D-${left}</span>
+      ${cur ? html`<span style="flex:none;font-size:12px;font-weight:700;background:var(--bg);border-radius:6px;padding:3px 7px">D-${left}</span>` : ''}
       <span>${restText}</span>
     </div>
   </section>`;
 }
 
 /* 이번 달 생활비 달력 (월 예산 탭) */
-function LifeCalendar({ data }) {
+function LifeCalendar({ data, ym }) {
   const [selDay, setSelDay] = useState(null);
   const [stickerTry, setStickerTry] = useState(0); // sticker.png → sticker.jpg → 기본 별
   const STICKERS = ['sticker.png', 'sticker.jpg'];
@@ -359,11 +407,13 @@ function LifeCalendar({ data }) {
     ? html`<img src=${STICKERS[stickerTry]} alt="" onError=${() => setStickerTry((n) => n + 1)} style=${{ width: size + 'px', height: size + 'px', objectFit: 'contain', display: 'block' }} />`
     : html`<svg width=${size} height=${size} viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.2 1.3-6.6L2.5 9.3l6.6-.8z" fill="#FFC53D" stroke="#E0A100" stroke-width="1" stroke-linejoin="round"/></svg>`;
   const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth() + 1;
+  const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
   const D = dimOf(y, m);
-  const upto = now.getDate();
-  const prefix = `${y}-${pad(m)}`;
-  const monthBudget = sum(data.items.filter((i) => i.cat === 'life'), (i) => i.amt);
+  const cur = ym === nowYm(), past = ym < nowYm();
+  const upto = cur ? now.getDate() : past ? D : 0;
+  const done = cur ? upto - 1 : upto; // 하루가 끝난 날까지만 집계
+  const prefix = ym;
+  const monthBudget = sum(lifeBudgetOf(data, ym), (b) => b.amt);
   const daily = Math.floor(monthBudget / D);
   const byDay = {};
   data.spend.filter((s) => s.date.startsWith(prefix)).forEach((r) => { const d = Number(r.date.slice(8)); (byDay[d] = byDay[d] || []).push(r); });
@@ -380,9 +430,17 @@ function LifeCalendar({ data }) {
     const base = { width: '100%', height: '60px', border: 0, padding: 0, borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0px', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'none' };
     if (d > upto) { cal.push(html`<span style=${Object.assign({}, base, { border: '1px dashed var(--line)', color: 'var(--faint)' })}><span style="font-size:7px;line-height:9px;font-weight:600">${d}</span><span style="height:32px"></span><span style="height:9px"></span></span>`); continue; }
     const v = dayTotal(d);
+    const isToday = cur && d === upto;
+    // 오늘은 아직 안 끝났으니 스티커 보류 (이미 예산을 넘었으면 바로 표시)
+    if (isToday && v <= daily) {
+      cal.push(html`<button type="button" aria-pressed=${on} aria-label=${`오늘 ${m}월 ${d}일 ${v}원`} style=${Object.assign({}, base, { background: '#fff', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'inset 0 0 0 1.5px #E2558A' })} onClick=${() => setSelDay(selDay === d ? null : d)}>
+        <span style="font-size:7px;line-height:9px;font-weight:700;color:#E2558A">${d}</span>
+        <span style="height:32px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#E2558A">오늘</span>
+        <span style="font-size:7px;line-height:9px;font-weight:600;color:var(--text2)">${v ? man(v) : '-'}</span></button>`);
+      continue;
+    }
     const good = v <= daily;
-    if (v === 0) zeroDays++;
-    if (good) goodDays++;
+    if (!isToday) { if (v === 0) zeroDays++; if (good) goodDays++; }
     const st = good ? { background: '#fff', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'inset 0 0 0 1px #EFEFF3' }
       : v > 50000 ? { background: '#FDE2E1', color: '#B42318' } : { background: '#ECECF0', color: '#6E6E73' };
     cal.push(html`<button type="button" aria-pressed=${on} aria-label=${`${m}월 ${d}일 ${v}원${good ? ' 예산 지킴' : ''}`} style=${Object.assign({}, base, st)} onClick=${() => setSelDay(selDay === d ? null : d)}>
@@ -393,7 +451,7 @@ function LifeCalendar({ data }) {
   const rows = selDay ? byDay[selDay] || [] : [];
   return html`<section class="card" style="padding:16px 12px;display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;padding:0 4px;font-size:13px;color:var(--text2)">
-        <span>예산 지킨 날 <b style="color:#E2558A">${goodDays}일</b> / ${upto}일</span><span>무지출 <b>${zeroDays}일</b></span>
+        <span>예산 지킨 날 <b style="color:#E2558A">${goodDays}일</b> / ${Math.max(0, done)}일</span><span>무지출 <b>${zeroDays}일</b></span>
       </div>
       <div style="padding:0 4px" class="sub">하루 예산 ${fmt(daily)}원 (${fmt(monthBudget)}원 ÷ ${D}일)</div>
       <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;font-size:11px;color:var(--muted);text-align:center">${WK.map((w) => html`<span>${w}</span>`)}</div>
@@ -420,8 +478,11 @@ function Budget({ data, api }) {
   const [openDay, setOpenDay] = useState(null);
   const [sheet, setSheet] = useState(null);
   const [incomeDraft, setIncomeDraft] = useState(null);
+  const [ym, setYmRaw] = useState(nowYm());
+  const setYm = (k) => { setYmRaw(k); setOpen(null); setOpenId(null); setOpenDay(null); };
+  const isCurM = ym === nowYm(), isPastM = ym < nowYm();
 
-  const items = data.items.slice().sort(byOrder);
+  const items = activeIn(data.items, ym).filter((x) => x.cat !== 'income').sort(byOrder);
   const of = (k) => items.filter((x) => x.cat === k);
   const sumOf = (k) => sum(of(k), (x) => x.amt);
   const total = sum(CATS, (c) => sumOf(c[0]));
@@ -429,11 +490,24 @@ function Budget({ data, api }) {
   const acctA = ceil10k(sumOf('save') + sumOf('invest'));
   const acctB = ceil10k(sumOf('use') + sumOf('house') + sumOf('fixed') + sumOf('meet'));
   const lifeSum = sumOf('life');
-  const income = data.config.income;
+  const income = incomeOf(data, ym);
+  const incomeItem = activeIn(data.items, ym).find((x) => x.cat === 'income');
+  // 이 달(ym)에서 고치면 이 달부터 앞으로 적용, 지난 달은 그대로
+  const maxOrder = () => Math.max(0, ...data.items.map((x) => x.order || 0));
+  const saveVersioned = (x, fields) => {
+    if (!x) { api.upsert('items', Object.assign({ id: newId('i'), from: ym, to: '', order: maxOrder() + 1 }, fields)); return; }
+    if ((x.from || '') === ym) { api.upsert('items', Object.assign({}, x, fields)); return; }
+    api.upsert('items', Object.assign({}, x, { to: addYm(ym, -1) }));
+    api.upsert('items', Object.assign({}, x, fields, { id: newId('i'), from: ym }));
+  };
+  const removeVersioned = (x) => {
+    if ((x.from || '') === ym) api.remove('items', x.id);
+    else api.upsert('items', Object.assign({}, x, { to: addYm(ym, -1) }));
+  };
   const diff = income == null ? null : income - acctA - acctB - lifeSum;
   const accounts = data.accounts.filter((a) => !a.closed).sort(byOrder);
-  const D = dimOf(now.getFullYear(), now.getMonth() + 1);
-  const today = now.getDate();
+  const D = dimOf(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)));
+  const today = isCurM ? now.getDate() : isPastM ? D + 1 : 0;
   const CUR_YM = `${String(now.getFullYear()).slice(2)}.${pad(now.getMonth() + 1)}`;
 
   // 출금 일정
@@ -473,29 +547,29 @@ function Budget({ data, api }) {
   const saveItem = () => {
     const s = sheet;
     if (s.cat !== 'life' && !s.name.trim()) { api.toast('항목명을 입력해 주세요'); return; }
-    const maxOrder = Math.max(0, ...data.items.map((x) => x.order || 0));
-    api.upsert('items', {
-      id: s.id || newId('i'), cat: s.cat, name: s.name.trim(), amt: s.amt || 0,
+    const x = s.id ? data.items.find((i) => i.id === s.id) : null;
+    saveVersioned(x, {
+      cat: s.cat, name: s.name.trim(), amt: s.amt || 0,
       day: Math.min(31, digits(s.day) || 0), memo: (s.memo || '').trim(),
-      review: s.hasReview ? (s.review || '').trim() : '', link: LINKABLE[s.cat] ? s.link : '',
-      order: s.id ? s.order : maxOrder + 1
+      review: s.hasReview ? (s.review || '').trim() : '', link: LINKABLE[s.cat] ? s.link : ''
     });
+    if (!isCurM && !isPastM) api.toast(`${Number(ym.slice(5, 7))}월부터 적용돼요`);
     setSheet(null);
   };
   const lastEdit = data.config.budgetEdited ? short(data.config.budgetEdited) : '';
 
   return html`<div class="page">
-    <div class="topbar"></div>
+    <${MonthNav} ym=${ym} setYm=${setYm} />
     <h1 class="h1">월 예산</h1>
 
-    <${LifeSummary} data=${data} />
+    <${LifeSummary} data=${data} ym=${ym} />
 
     <h2 class="h2">생활비 달력</h2>
-    <${LifeCalendar} data=${data} />
+    <${LifeCalendar} key=${ym} data=${data} ym=${ym} />
 
     <h2 class="h2" style="display:flex;justify-content:space-between"><span>월급 배분</span><span>${lastEdit ? lastEdit + ' 수정' : ''}</span></h2>
     <section class="card pad" style="gap:16px">
-      <div style="display:flex;flex-direction:column;gap:4px"><span class="lbl">이번 달 예산 합계</span><span class="big">${fmt(acctA + acctB + lifeSum)}<small>원</small></span></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="lbl">${isCurM ? '이번 달' : Number(ym.slice(5, 7)) + '월'} 예산 합계</span><span class="big">${fmt(acctA + acctB + lifeSum)}<small>원</small></span></div>
       <div class="grid2">
         <button type="button" onClick=${() => setIncomeDraft(income == null ? undefined : income)} style="border:0;text-align:left;background:var(--bg);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px">
           <span class="sub">실수령</span><span style="font-size:15px;font-weight:600">${income == null ? '입력하기 ›' : fmt(income) + '원'}</span>
@@ -535,7 +609,7 @@ function Budget({ data, api }) {
             ${list.map((x) => {
               const when = k === 'life' ? '지출 탭과 연동' : x.day ? `매월 ${x.day}일` : '날짜 미정';
               return html`<div style="border-bottom:0.5px solid #ECECF0"><${Swipe} id=${x.id} openId=${openId} setOpenId=${setOpenId} bg="#F7F7FA" fgClass="" fgStyle=${{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px 8px 60px', minHeight: '52px' }}
-                actions=${k === 'life' ? [{ label: '수정', cls: 'b-blue', on: () => openItem(k, x) }] : [{ label: '수정', cls: 'b-blue', on: () => openItem(k, x) }, { label: '삭제', cls: 'b-red', on: () => api.remove('items', x.id) }]}>
+                actions=${k === 'life' ? [{ label: '수정', cls: 'b-blue', on: () => openItem(k, x) }] : [{ label: '수정', cls: 'b-blue', on: () => openItem(k, x) }, { label: '삭제', cls: 'b-red', on: () => removeVersioned(x) }]}>
                 <span style="flex:1;display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:15px;font-weight:600">${x.name}</span><span class="sub">${when}${x.review ? ` · ${x.review} 검토` : ''}${x.memo ? ' · ' + x.memo : ''}</span></span>
                 <span style="font-size:15px;font-weight:600">${fmt(x.amt)}</span>
               <//></div>`;
@@ -549,8 +623,8 @@ function Budget({ data, api }) {
     <h2 class="h2">출금 일정</h2>
     <section class="card" style="padding:18px 16px 16px;display:flex;flex-direction:column;gap:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px">
-        <span class="row" style="gap:7px;font-weight:700;color:var(--blue-d)"><span style="width:8px;height:8px;border-radius:4px;background:var(--blue-d);box-shadow:0 0 0 3px #D6E6FF"></span>오늘 ${now.getMonth() + 1}.${today}</span>
-        <span style="color:var(--text2)">남은 출금 <b style="color:var(--text)">${fmt(remain)}원</b></span>
+        ${isCurM ? html`<span class="row" style="gap:7px;font-weight:700;color:var(--blue-d)"><span style="width:8px;height:8px;border-radius:4px;background:var(--blue-d);box-shadow:0 0 0 3px #D6E6FF"></span>오늘 ${now.getMonth() + 1}.${today}</span>` : html`<span class="sub">${Number(ym.slice(5, 7))}월 출금</span>`}
+        <span style="color:var(--text2)">${isPastM ? '합계' : '남은 출금'} <b style="color:var(--text)">${fmt(isPastM ? sum(Object.values(amounts)) : remain)}원</b></span>
       </div>
       <div role="img" aria-label="날짜별 출금액" style="display:flex;align-items:flex-end;gap:3px;height:72px">${bars}</div>
       <div style="display:flex;gap:14px;font-size:12px;color:var(--text2)">
@@ -591,7 +665,7 @@ function Budget({ data, api }) {
       ${reviews.length === 0 ? html`<div class="empty">예정된 검토가 없어요</div>` : ''}
     </section>
 
-    ${incomeDraft !== null && html`<${Sheet} title="실수령" onClose=${() => setIncomeDraft(null)} onSave=${() => { api.setConfig('income', incomeDraft || ''); setIncomeDraft(null); }}>
+    ${incomeDraft !== null && html`<${Sheet} title="실수령" onClose=${() => setIncomeDraft(null)} onSave=${() => { saveVersioned(incomeItem || null, { cat: 'income', name: '실수령', amt: incomeDraft || 0, day: 0, memo: '', review: '', link: '' }); setIncomeDraft(null); }}>
       <${AmtInput} value=${incomeDraft === undefined ? null : incomeDraft} onChange=${(v) => setIncomeDraft(v == null ? undefined : v)} autofocus />
     <//>`}
 
@@ -614,7 +688,7 @@ function Budget({ data, api }) {
           <${Seg} sm opts=${[['n', '없음'], ['y', '검토']]} value=${sheet.hasReview ? 'y' : 'n'} onChange=${(v) => setSheet(Object.assign({}, sheet, { hasReview: v === 'y' }))} />
           ${sheet.hasReview && html`<div style="display:grid;grid-template-columns:112px minmax(0,1fr);gap:8px;margin-top:6px"><label class="field"><input type="text" aria-label="검토할 달" placeholder="예: 27.04" value=${sheet.review} onInput=${(e) => setSheet(Object.assign({}, sheet, { review: e.target.value }))} /></label></div>`}
         </div>
-        ${sheet.id && html`<button type="button" class="btn danger" onClick=${() => { api.remove('items', sheet.id); setSheet(null); }}>이 항목 삭제</button>`}
+        ${sheet.id && html`<button type="button" class="btn danger" onClick=${() => { removeVersioned(data.items.find((i) => i.id === sheet.id)); setSheet(null); }}>이 항목 삭제</button>`}
       `}
     <//>`}
   </div>`;
@@ -809,13 +883,13 @@ function Assets({ data, api, goCheck }) {
 
     ${sheet && sheet.kind === 'bucket' && html`<${Sheet} title=${sheet.id ? '버킷 수정' : '버킷 추가'} onClose=${() => setSheet(null)} onSave=${saveBucket}>
       <label class="field"><span>버킷 이름</span><input class="lg" type="text" placeholder="예: 여행자금" value=${sheet.name} onInput=${(e) => setSheet(Object.assign({}, sheet, { name: e.target.value }))} /></label>
-      <label class="field"><span>목표 시점 (선택)</span><input type="text" placeholder="예: 29.12" value=${sheet.when} onInput=${(e) => setSheet(Object.assign({}, sheet, { when: e.target.value }))} /></label>
+      <label class="field"><span>목표 시점 (선택 · 참고용)</span><input type="text" placeholder="예: 29.12" value=${sheet.when} onInput=${(e) => setSheet(Object.assign({}, sheet, { when: e.target.value }))} /></label>
       <div class="field"><span>색</span><div class="wrap" style="gap:10px">${PALETTE.map((c) => html`<button type="button" aria-label=${'색 ' + c} aria-pressed=${sheet.color === c} onClick=${() => setSheet(Object.assign({}, sheet, { color: c }))} style=${{ width: '32px', height: '32px', borderRadius: '16px', border: 0, background: c, boxShadow: sheet.color === c ? '0 0 0 2px #fff, 0 0 0 4px #1C1C1E' : 'none' }}></button>`)}</div></div>
     <//>`}
     ${sheet && sheet.kind === 'account' && html`<${Sheet} title=${sheet.id ? '계좌 수정' : '계좌 추가'} onClose=${() => setSheet(null)} onSave=${saveAccount}>
       <label class="field"><span>계좌 이름</span><input class="lg" type="text" placeholder="예: 파킹통장" value=${sheet.name} onInput=${(e) => setSheet(Object.assign({}, sheet, { name: e.target.value }))} /></label>
       <label class="field"><span>목표 금액 (만원, 선택)</span><input type="text" inputmode="numeric" placeholder="예: 500" value=${sheet.target == null ? '' : fmt(sheet.target)} onInput=${(e) => { const v = digits(e.target.value); setSheet(Object.assign({}, sheet, { target: v })); e.target.value = v == null ? '' : fmt(v); }} /></label>
-      <label class="field"><span>만기 (선택)</span><input type="text" placeholder="예: 27.03" value=${sheet.due} onInput=${(e) => setSheet(Object.assign({}, sheet, { due: e.target.value }))} /></label>
+      <label class="field"><span>만기 (선택 · 참고용)</span><input type="text" placeholder="예: 27.03" value=${sheet.due} onInput=${(e) => setSheet(Object.assign({}, sheet, { due: e.target.value }))} /></label>
       <div class="field"><span>버킷</span><div class="wrap">${buckets.map((b) => html`<button type="button" class=${'chip sm dark' + (sheet.bucket === b.id ? ' on' : '')} onClick=${() => setSheet(Object.assign({}, sheet, { bucket: b.id }))}>${b.name}</button>`)}</div></div>
     <//>`}
   </div>`;
@@ -845,7 +919,20 @@ function Checkup({ data, api, onDone, onCancel }) {
     }
     return n;
   };
-  const autoOf = (a) => sum(data.items.filter((i) => i.link === a.id), (i) => i.amt * countDay(i.day)) / 10000;
+  // 날짜마다 그 달에 적용 중인 예산 항목 기준으로 자동이체 금액 더하기
+  const autoOf = (a) => {
+    if (!L) return 0;
+    let total = 0;
+    const d = new Date(L + 'T00:00:00'); d.setDate(d.getDate() + 1);
+    const end = new Date(today + 'T00:00:00');
+    while (d <= end) {
+      const k = ymKey(d.getFullYear(), d.getMonth() + 1);
+      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      activeIn(data.items, k).forEach((i) => { if (i.link === a.id && i.day && d.getDate() === Math.min(i.day, last)) total += i.amt; });
+      d.setDate(d.getDate() + 1);
+    }
+    return total / 10000;
+  };
   const num = (s) => { const v = parseFloat(String(s == null ? '' : s).replace(/[^0-9.]/g, '')); return isNaN(v) ? 0 : v; };
   const r1 = (n) => Math.floor(n * 10 + 1e-9) / 10;
   const rowOf = (a) => {
