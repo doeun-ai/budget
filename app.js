@@ -546,7 +546,7 @@ function Budget({ data, api }) {
   const bars = [];
   for (let i = 1; i <= D; i++) {
     const a = amounts[i] || 0;
-    if (i >= today) remain += a;
+    if (i >= today && i <= 25) remain += a;
     const h = a ? Math.max(6, Math.round(52 * Math.sqrt(a / maxA))) : 4;
     const isT = i === today;
     const show = isT || ((i === 1 || i === 10 || i === 20 || i === D) && Math.abs(i - today) > 2);
@@ -554,6 +554,12 @@ function Budget({ data, api }) {
       <div style=${{ width: '100%', height: h + 'px', borderRadius: '2px', background: i < today ? '#C9DAF2' : '#4A8FE7' }}></div>
       <span style=${{ fontSize: '10px', height: '12px', lineHeight: '12px', whiteSpace: 'nowrap', color: isT ? 'var(--blue-d)' : 'var(--muted)', fontWeight: isT ? 700 : 500 }}>${show ? i : ''}</span>
     </div>`);
+  }
+  // 25일(월급날)까지 남은 출금. 26일 이후라면 이번 달 남은 날 + 다음 달 1~25일
+  if (isCurM && today > 25) {
+    for (let i = today; i <= D; i++) remain += amounts[i] || 0;
+    const nk = addYm(ym, 1);
+    activeIn(data.items, nk).forEach((x) => { if (x.cat !== 'life' && x.cat !== 'income' && x.day && x.day <= 25) remain += x.amt; });
   }
   const sorted = Object.keys(byDay).map(Number).sort((a, b) => a - b);
   let groups = sorted.filter((d) => d >= today).map((d) => [d, byDay[d]]);
@@ -643,7 +649,7 @@ function Budget({ data, api }) {
     <section class="card" style="padding:18px 16px 16px;display:flex;flex-direction:column;gap:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px">
         ${isCurM ? html`<span class="row" style="gap:7px;font-weight:700;color:var(--blue-d)"><span style="width:8px;height:8px;border-radius:4px;background:var(--blue-d);box-shadow:0 0 0 3px #D6E6FF"></span>오늘 ${now.getMonth() + 1}.${today}</span>` : html`<span class="sub">${Number(ym.slice(5, 7))}월 출금</span>`}
-        <span style="color:var(--text2)">${isPastM ? '합계' : '남은 출금'} <b style="color:var(--text)">${fmt(isPastM ? sum(Object.values(amounts)) : remain)}원</b></span>
+        <span style="color:var(--text2)">${isPastM ? '합계' : isCurM ? '25일까지 남은 출금' : '25일까지 출금'} <b style="color:var(--text)">${fmt(isPastM ? sum(Object.values(amounts)) : remain)}원</b></span>
       </div>
       <div role="img" aria-label="날짜별 출금액" style="display:flex;align-items:flex-end;gap:3px;height:72px">${bars}</div>
       <div style="display:flex;gap:14px;font-size:12px;color:var(--text2)">
