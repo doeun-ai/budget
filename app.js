@@ -735,6 +735,7 @@ function Assets({ data, api, goCheck }) {
   const [openId, setOpenId] = useState(null);
   const [openBucket, setOpenBucket] = useState(null);
   const [sheet, setSheet] = useState(null);
+  const [openAcc, setOpenAcc] = useState(null);
   const { dates, L, P, amt } = assetModel(data);
   const buckets = data.buckets.slice().sort(byOrder);
   const all = data.accounts.slice().sort(byOrder);
@@ -897,9 +898,45 @@ function Assets({ data, api, goCheck }) {
             <span style="font-size:13px;font-weight:700;color:var(--text2)">${fmt1(g)}만</span>
             <span style=${{ width: '56px', textAlign: 'right', fontSize: '13px', fontWeight: 700, color: gd === 0 ? 'var(--faint)' : gd > 0 ? 'var(--green)' : '#C2410C' }}>${gd === 0 ? '—' : (gd > 0 ? '+' : '−') + fmt1(Math.abs(gd)) + '만'}</span>
           </div>
-          ${list.map((a) => { const dv = cur(a) - prev(a); return html`<div class="row" style="gap:8px;padding:0 16px;min-height:44px;border-bottom:0.5px solid #F0F0F3">
-            <span style="flex:1;min-width:0">${a.name}</span><b style="font-weight:600">${fmt1(cur(a))}만</b>
-            <span style=${{ width: '56px', textAlign: 'right', fontSize: '13px', fontWeight: dv ? 600 : 400, color: dv === 0 ? 'var(--muted)' : dv > 0 ? 'var(--green)' : '#C2410C' }}>${dv === 0 ? '—' : (dv > 0 ? '+' : '−') + fmt1(Math.abs(dv)) + '만'}</span>
+          ${list.map((a) => { const dv = cur(a) - prev(a); const isO = openAcc === a.id; return html`<div style="border-bottom:0.5px solid #F0F0F3">
+            <button type="button" aria-expanded=${isO} onClick=${() => setOpenAcc(isO ? null : a.id)} class="row" style="width:100%;border:0;background:#fff;text-align:left;font-size:15px;gap:8px;padding:0 16px;min-height:44px">
+              <span style="flex:1;min-width:0">${a.name}</span><b style="font-weight:600">${fmt1(cur(a))}만</b>
+              <span style=${{ width: '56px', textAlign: 'right', fontSize: '13px', fontWeight: dv ? 600 : 400, color: dv === 0 ? 'var(--muted)' : dv > 0 ? 'var(--green)' : '#C2410C' }}>${dv === 0 ? '—' : (dv > 0 ? '+' : '−') + fmt1(Math.abs(dv)) + '만'}</span>
+              ${I.chev(isO, 12)}
+            </button>
+            ${isO && (() => {
+              // 이 계좌의 최근 점검 6번 변화
+              const ds = dates.filter((d) => data.checks.some((c) => c.date === d && c.accountId === a.id)).slice(-6);
+              const vals = ds.map((d) => amt(d, a.id));
+              // 목표가 너무 멀면 막대가 납작해지니, 가까울 때만 목표선을 그리고 아니면 글자로
+              const vmax = Math.max(1, ...vals);
+              const showLine = a.target && a.target <= vmax * 1.6;
+              const mx = showLine ? Math.max(vmax, a.target) : vmax;
+              const H = 90;
+              const tgtPos = showLine ? Math.round(a.target / mx * H) : null;
+              if (!ds.length) return html`<div class="empty" style="background:#F7F7FA">아직 점검 기록이 없어요</div>`;
+              return html`<div style="background:#F7F7FA;padding:14px 16px 12px;display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)">
+                  <span>점검별 변화 (만원)</span>
+                  ${a.target ? (showLine
+                    ? html`<span class="row" style="gap:5px"><span style=${{ width: '14px', borderTop: '1.5px dashed ' + b.color }}></span>목표 ${fmt(a.target)}만</span>`
+                    : html`<span>목표 ${fmt(a.target)}만까지 ${fmt1(Math.max(0, a.target - vals[vals.length - 1]))}만 남음</span>`) : ''}
+                </div>
+                <div style="position:relative;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;align-items:end;height:${H + 34}px">
+                  ${tgtPos !== null ? html`<div style=${{ position: 'absolute', left: 0, right: 0, bottom: (18 + tgtPos) + 'px', borderTop: '1.5px dashed ' + b.color, opacity: 0.7 }}></div>` : ''}
+                  ${[0, 1, 2, 3, 4, 5].map((i) => {
+                    if (i >= ds.length) return html`<div></div>`;
+                    const v = vals[i]; const pv = i > 0 ? vals[i - 1] : null; const last = i === ds.length - 1;
+                    return html`<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+                      <span style=${{ fontSize: '11px', fontWeight: last ? 700 : 600, whiteSpace: 'nowrap' }}>${fmt1(v)}</span>
+                      ${pv !== null && v !== pv ? html`<span style=${{ fontSize: '10px', lineHeight: '10px', color: v > pv ? 'var(--green)' : '#C2410C' }}>${v > pv ? '+' : '−'}${fmt1(Math.abs(v - pv))}</span>` : html`<span style="height:10px"></span>`}
+                      <div style=${{ width: '22px', height: Math.max(3, Math.round(v / mx * H)) + 'px', borderRadius: '5px', background: b.color, opacity: last ? 1 : 0.55 }}></div>
+                      <span style=${{ fontSize: '11px', color: last ? 'var(--text)' : 'var(--muted)', fontWeight: last ? 600 : 400 }}>${short(ds[i]).slice(3)}</span>
+                    </div>`;
+                  })}
+                </div>
+              </div>`;
+            })()}
           </div>`; })}
         </div>`;
       })}
