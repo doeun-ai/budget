@@ -498,6 +498,7 @@ function Budget({ data, api }) {
   const [sheet, setSheet] = useState(null);
   const [incomeDraft, setIncomeDraft] = useState(null);
   const [ym, setYmRaw] = useState(nowYm());
+  const [budgetOpen, setBudgetOpen] = useState(false); // 탭을 떠나거나 앱이 잠기면 다시 가려짐
   const setYm = (k) => { setYmRaw(k); setOpen(null); setOpenId(null); setOpenDay(null); };
   const isCurM = ym === nowYm(), isPastM = ym < nowYm();
 
@@ -593,7 +594,8 @@ function Budget({ data, api }) {
     <${LifeCalendar} key=${ym} data=${data} ym=${ym} />
 
     <h2 class="h2" style="display:flex;justify-content:space-between"><span>월급 배분</span><span>${lastEdit ? lastEdit + ' 수정' : ''}</span></h2>
-    <section class="card pad" style="gap:16px">
+    <section class="card pad" style="gap:16px;position:relative">
+    <div aria-hidden=${!budgetOpen} style=${Object.assign({ display: 'flex', flexDirection: 'column', gap: '16px' }, budgetOpen ? {} : { filter: 'blur(12px)', pointerEvents: 'none', userSelect: 'none', WebkitUserSelect: 'none' })}>
       <div style="display:flex;flex-direction:column;gap:4px"><span class="lbl">${isCurM ? '이번 달' : Number(ym.slice(5, 7)) + '월'} 예산 합계</span><span class="big">${fmt(acctA + acctB + lifeSum)}<small>원</small></span></div>
       <div class="grid2">
         <button type="button" onClick=${() => setIncomeDraft(income == null ? undefined : income)} style="border:0;text-align:left;background:var(--bg);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px">
@@ -614,6 +616,12 @@ function Budget({ data, api }) {
         <div style="display:flex;justify-content:space-between"><span style="font-size:14px;color:var(--text2)">자동이체 합계</span><span style="font-size:15px;font-weight:700;color:var(--blue-d)">${fmt(acctB)}원</span></div>
         <div style="display:flex;justify-content:space-between"><span style="font-size:14px;color:var(--text2)">생활비</span><span style="font-size:15px;font-weight:700;color:var(--text)">${fmt(lifeSum)}원</span></div>
       </div>
+    </div>
+    ${!budgetOpen && html`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 20px">
+      <span style="width:44px;height:44px;border-radius:22px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3A3A3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+      <span style="font-size:15px;font-weight:600;color:var(--text2)">월급 배분이 가려져 있어요</span>
+      <button type="button" class="btn" style="height:44px;max-width:240px" onClick=${() => setBudgetOpen(true)}>예산 보기</button>
+    </div>`}
     </section>
 
     <h2 class="h2">카테고리</h2>
