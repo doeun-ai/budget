@@ -254,9 +254,9 @@ function Spend({ data, api }) {
     months.push({ label: mm + '월', fc: fundCovers(data, pf), has: rs.length > 0, cur: yy === now.getFullYear() && mm === now.getMonth() + 1, vals: LIFE.map((n) => sum(rs.filter((r) => r.cat === n), (r) => r.amt)) });
   }
   const fundAmt = sum(activeIn(data.items, addYm(ymKey(y, m), -1)).filter((i) => i.cat === 'fund'), (i) => i.amt);
-  const tBudget = tf === 'all' ? monthBudget : tf === FUND_CAT && fundAmt ? fundAmt : budgets.find((b) => b.name === tf).amt;
+  const tBudget = tf === 'all' ? sum(budgets.filter((b) => b.name !== FUND_CAT), (b) => b.amt) : tf === FUND_CAT && fundAmt ? fundAmt : budgets.find((b) => b.name === tf).amt;
   // 전체 = 생활비(경조사 통장 달은 경조사 제외)
-  const tVal = (mo) => (tf === 'all' ? sum(mo.vals.filter((v, i) => !(mo.fc && LIFE[i] === FUND_CAT))) : mo.vals[LIFE.indexOf(tf)]);
+  const tVal = (mo) => (tf === 'all' ? sum(mo.vals.filter((v, i) => LIFE[i] !== FUND_CAT)) : mo.vals[LIFE.indexOf(tf)]);
   const tMax = Math.max(tBudget, ...months.map(tVal), 1);
   const H = 150;
   const pastM = months.slice(0, 5).filter((mo) => mo.has);
@@ -352,7 +352,7 @@ function Spend({ data, api }) {
       </div>
       <section class="card" style="margin-top:12px;padding:16px;display:flex;flex-direction:column;gap:12px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:700">${tf === 'all' ? '생활비 전체' : tf} · 최근 6개월</span><span class="sub">${tAvg == null ? '이전 달 기록이 아직 없어요' : `지난 ${pastM.length}개월 평균 ${fmt(tAvg)}원`}</span></div>
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:700">${tf === 'all' ? '생활비 전체 (경조사 제외)' : tf} · 최근 6개월</span><span class="sub">${tAvg == null ? '이전 달 기록이 아직 없어요' : `지난 ${pastM.length}개월 평균 ${fmt(tAvg)}원`}</span></div>
           <span class="row" style="flex:none;gap:6px;font-size:12px;font-weight:700;color:var(--warn);padding-top:2px"><span style="width:16px;border-top:1.5px dashed var(--warn)"></span>예산 ${man(tBudget)}</span>
         </div>
         <div role="img" aria-label="최근 6개월 지출 막대" style="position:relative;height:190px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end">
@@ -362,13 +362,13 @@ function Spend({ data, api }) {
             return html`<div style="display:flex;flex-direction:column;align-items:center;gap:4px">
               <span style=${{ position: 'relative', zIndex: 3, background: '#fff', padding: '0 2px', borderRadius: '3px', fontSize: '11px', fontWeight: 700, color: v > tBudget ? 'var(--warn)' : 'var(--text2)' }}>${v ? man(v) : '0'}</span>
               <div style="width:26px;display:flex;flex-direction:column-reverse;border-radius:6px;overflow:hidden">
-                ${LIFE.map((n, i) => { if (tf !== 'all' && n !== tf) return ''; if (tf === 'all' && mo.fc && n === FUND_CAT) return ''; const h = Math.floor(mo.vals[i] / tMax * H); return h > 0 ? html`<div style=${{ height: h + 'px', background: LIFE_COLOR[n], opacity: mo.cur ? 0.6 : 1 }}></div>` : ''; })}
+                ${LIFE.map((n, i) => { if (tf !== 'all' && n !== tf) return ''; if (tf === 'all' && n === FUND_CAT) return ''; const h = Math.floor(mo.vals[i] / tMax * H); return h > 0 ? html`<div style=${{ height: h + 'px', background: LIFE_COLOR[n], opacity: mo.cur ? 0.6 : 1 }}></div>` : ''; })}
               </div>
               <span style="height:16px;line-height:16px;font-size:12px;color:var(--muted)">${mo.label}</span>
             </div>`;
           })}
         </div>
-        ${tf === 'all' && html`<div class="wrap" style="gap:12px;font-size:12px;color:var(--text2)">${LIFE.map((n) => html`<span class="row" style="gap:5px"><span style=${{ width: '10px', height: '10px', borderRadius: '3px', background: LIFE_COLOR[n] }}></span>${n}</span>`)}</div>`}
+        ${tf === 'all' && html`<div class="wrap" style="gap:12px;font-size:12px;color:var(--text2)">${LIFE.filter((n) => n !== FUND_CAT).map((n) => html`<span class="row" style="gap:5px"><span style=${{ width: '10px', height: '10px', borderRadius: '3px', background: LIFE_COLOR[n] }}></span>${n}</span>`)}</div>`}
       </section>
       <section class="card" style="margin-top:12px">
         ${months.slice().reverse().map((mo, i) => {
