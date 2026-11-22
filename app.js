@@ -348,7 +348,7 @@ function Spend({ data, api }) {
 
     ${view === 'trend' && html`
       <div class="chips" style="margin-top:12px;grid-template-columns:repeat(6,minmax(0,1fr))">
-        ${[['all', '전체']].concat(LIFE.map((n) => [n, n])).map(([k, l]) => html`<button type="button" class=${'chip sm dark' + (tf === k ? ' on' : '')} style="padding:0" onClick=${() => setTf(k)}>${l}</button>`)}
+        ${[['all', '전체']].concat(LIFE.map((n) => [n, n])).map(([k, l]) => html`<button type="button" class=${'chip sm dark' + (tf === k ? ' on' : '')} style=${k === FUND_CAT ? (tf === k ? 'padding:0;background:#E07BB0;color:#fff;border-color:transparent' : 'padding:0;border-color:#E07BB0;color:#C2477A;background:#FCE8F0') : 'padding:0'} onClick=${() => setTf(k)}>${l}</button>`)}
       </div>
       <section class="card" style="margin-top:12px;padding:16px;display:flex;flex-direction:column;gap:12px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
