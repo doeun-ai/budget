@@ -25,7 +25,33 @@ const activeIn = (items, k) => items.filter((x) => (!x.from || x.from <= k) && (
 const nowYm = () => { const t = new Date(); return ymKey(t.getFullYear(), t.getMonth() + 1); };
 const MIN_YM = () => addYm(nowYm(), -12);
 const MAX_YM = () => addYm(nowYm(), 3);
-const lifeBudgetOf = (data, k) => { const a = activeIn(data.items, k).filter((i) => i.cat === 'life'); return LIFE_NAMES.map((n) => ({ name: n, amt: (a.find((i) => i.name === n) || { amt: 0 }).amt })); };
+// 경조사 통장: 지난달에 이체(cat 'fund')가 있었으면 이번 달 경조사는 통장에서 나간 돈
+const FUND_CAT = '경조사';
+const fundCovers = (data, k) => activeIn(data.items, addYm(k, -1)).some((i) => i.cat === 'fund');
+const isFundSpend = (data, r) => r.cat === FUND_CAT && fundCovers(data, r.date.slice(0, 7));
+const lifeBudgetOf = (data, k) => { const a = activeIn(data.items, k).filter((i) => i.cat === 'life'); const fc = fundCovers(data, k); return LIFE_NAMES.map((n) => ({ name: n, fund: fc && n === FUND_CAT, amt: fc && n === FUND_CAT ? 0 : (a.find((i) => i.name === n) || { amt: 0 }).amt })); };
+// 통장 잔액 = 지금까지 이체 − 통장에서 쓴 경조사 + 실제 잔액 맞추기 조정
+const fundState = (data) => {
+  const funds = data.items.filter((i) => i.cat === 'fund');
+  if (!funds.length) return null;
+  const today = todayStr();
+  const startYm = funds.map((i) => i.from || nowYm()).sort()[0];
+  const curYm = nowYm();
+  let inTotal = 0, inThis = 0, nextIn = null;
+  for (let k = startYm; k <= addYm(curYm, 1); k = addYm(k, 1)) {
+    const y = Number(k.slice(0, 4)), m = Number(k.slice(5, 7));
+    activeIn(data.items, k).filter((i) => i.cat === 'fund').forEach((i) => {
+      const d = `${k}-${pad(Math.min(i.day || 1, dimOf(y, m)))}`;
+      if (d <= today) { inTotal += i.amt; if (k === curYm) inThis += i.amt; }
+      else if (!nextIn) nextIn = { date: d, amt: i.amt };
+    });
+  }
+  const outs = data.spend.filter((r) => isFundSpend(data, r) && r.date <= today);
+  const outTotal = sum(outs, (r) => r.amt);
+  const outThis = sum(outs.filter((r) => r.date.startsWith(curYm)), (r) => r.amt);
+  const adj = sum(data.items.filter((i) => i.cat === 'fundadj' && (i.memo || '') <= today), (i) => i.amt);
+  return { balance: inTotal - outTotal + adj, inThis, outThis, nextIn, monthly: sum(activeIn(data.items, curYm).filter((i) => i.cat === 'fund'), (i) => i.amt) };
+};
 const incomeOf = (data, k) => { const a = activeIn(data.items, k).find((i) => i.cat === 'income'); return a ? a.amt : data.config.income; };
 const ymLabel = (k) => `${Number(k.slice(0, 4))}년 ${Number(k.slice(5, 7))}월`;
 
@@ -35,7 +61,7 @@ const LIFE_DESC = { 약속: '약속 · 외식 · 배달 · 카페', 생활: '식
 const LIFE_COLOR = { 약속: '#0062CC', 생활: '#2E9C7E', 기타: '#8E7CF0', 관리: '#E07BB0', 경조사: '#9AA0A6' };
 const CATS = [
   ['save', '적금', '#0050C8'], ['invest', '투자', '#64A8FF'], ['use', '사용적금', '#7B61E8'],
-  ['house', '주거비', '#2E9C7E'], ['fixed', '고정비', '#F08A00'], ['meet', '모임비', '#FFC85C'], ['life', '생활비', '#C7C7CC']
+  ['house', '주거비', '#2E9C7E'], ['fixed', '고정비', '#F08A00'], ['meet', '모임비', '#FFC85C'], ['fund', '경조사 통장', '#E07BB0'], ['life', '생활비', '#C7C7CC']
 ];
 const LINKABLE = { save: 1, invest: 1, use: 1 };
 const PALETTE = ['#2E9C7E', '#64A8FF', '#0050C8', '#9AA0A6', '#3A3A3C', '#F08A00', '#7B61E8', '#E07BB0', '#C2A000'];
@@ -225,10 +251,12 @@ function Spend({ data, api }) {
     while (mm < 1) { mm += 12; yy--; }
     const pf = `${yy}-${pad(mm)}`;
     const rs = data.spend.filter((s) => s.date.startsWith(pf));
-    months.push({ label: mm + '월', has: rs.length > 0, cur: yy === now.getFullYear() && mm === now.getMonth() + 1, vals: LIFE.map((n) => sum(rs.filter((r) => r.cat === n), (r) => r.amt)) });
+    months.push({ label: mm + '월', fc: fundCovers(data, pf), has: rs.length > 0, cur: yy === now.getFullYear() && mm === now.getMonth() + 1, vals: LIFE.map((n) => sum(rs.filter((r) => r.cat === n), (r) => r.amt)) });
   }
-  const tBudget = tf === 'all' ? monthBudget : budgets.find((b) => b.name === tf).amt;
-  const tVal = (mo) => (tf === 'all' ? sum(mo.vals) : mo.vals[LIFE.indexOf(tf)]);
+  const fundAmt = sum(activeIn(data.items, addYm(ymKey(y, m), -1)).filter((i) => i.cat === 'fund'), (i) => i.amt);
+  const tBudget = tf === 'all' ? monthBudget : tf === FUND_CAT && fundAmt ? fundAmt : budgets.find((b) => b.name === tf).amt;
+  // 전체 = 생활비(경조사 통장 달은 경조사 제외)
+  const tVal = (mo) => (tf === 'all' ? sum(mo.vals.filter((v, i) => !(mo.fc && LIFE[i] === FUND_CAT))) : mo.vals[LIFE.indexOf(tf)]);
   const tMax = Math.max(tBudget, ...months.map(tVal), 1);
   const H = 150;
   const pastM = months.slice(0, 5).filter((mo) => mo.has);
@@ -294,6 +322,13 @@ function Spend({ data, api }) {
         const pct = b.amt ? Math.min(100, Math.floor(used / b.amt * 100)) : (used ? 100 : 0);
         const state = over ? `${fmt(used - b.amt)}원 초과` : used === b.amt && used > 0 ? '예산 소진' : `${fmt(b.amt - used)}원 남음`;
         const on = selCat === b.name;
+        if (b.fund) {
+          const fs = fundState(data);
+          return html`<button type="button" aria-pressed=${on} onClick=${() => setSelCat(on ? null : b.name)} style=${{ width: '100%', border: 0, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px 16px', background: on ? '#EEF4FF' : '#fff', borderBottom: i < budgets.length - 1 ? '0.5px solid var(--line)' : 0 }}>
+            <span style="display:flex;align-items:baseline;gap:8px;width:100%"><span style="flex:1;font-size:15px;font-weight:600">${b.name} <span style="font-size:11px;font-weight:700;color:#C2477A;background:#FCE8F0;border-radius:5px;padding:2px 5px;margin-left:2px">통장</span></span><span style="font-size:15px;font-weight:700">${fmt(used)}</span></span>
+            <span class="sub">경조사 통장에서 나가요${fs ? ` · 지금 잔액 ${fs.balance < 0 ? '−' : ''}${fmt(Math.abs(fs.balance))}원` : ''}</span>
+          </button>`;
+        }
         return html`<button type="button" aria-pressed=${on} onClick=${() => setSelCat(on ? null : b.name)} style=${{ width: '100%', border: 0, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 16px', background: on ? '#EEF4FF' : '#fff', borderBottom: i < budgets.length - 1 ? '0.5px solid var(--line)' : 0 }}>
           <span style="display:flex;align-items:baseline;gap:8px;width:100%"><span style="flex:1;font-size:15px;font-weight:600">${b.name}</span><span style=${{ fontSize: '15px', fontWeight: 700, color: over ? 'var(--warn)' : 'var(--text)' }}>${fmt(used)}</span><span style="font-size:13px;color:var(--muted)">/ ${fmt(b.amt)}</span></span>
           <span style="display:block;width:100%;height:8px;border-radius:4px;background:#EDEDF0;overflow:hidden"><span style=${{ display: 'block', height: '8px', borderRadius: '4px', width: pct + '%', background: over ? 'var(--orange)' : 'var(--blue)' }}></span></span>
@@ -327,7 +362,7 @@ function Spend({ data, api }) {
             return html`<div style="display:flex;flex-direction:column;align-items:center;gap:4px">
               <span style=${{ position: 'relative', zIndex: 3, background: '#fff', padding: '0 2px', borderRadius: '3px', fontSize: '11px', fontWeight: 700, color: v > tBudget ? 'var(--warn)' : 'var(--text2)' }}>${v ? man(v) : '0'}</span>
               <div style="width:26px;display:flex;flex-direction:column-reverse;border-radius:6px;overflow:hidden">
-                ${LIFE.map((n, i) => { if (tf !== 'all' && n !== tf) return ''; const h = Math.floor(mo.vals[i] / tMax * H); return h > 0 ? html`<div style=${{ height: h + 'px', background: LIFE_COLOR[n], opacity: mo.cur ? 0.6 : 1 }}></div>` : ''; })}
+                ${LIFE.map((n, i) => { if (tf !== 'all' && n !== tf) return ''; if (tf === 'all' && mo.fc && n === FUND_CAT) return ''; const h = Math.floor(mo.vals[i] / tMax * H); return h > 0 ? html`<div style=${{ height: h + 'px', background: LIFE_COLOR[n], opacity: mo.cur ? 0.6 : 1 }}></div>` : ''; })}
               </div>
               <span style="height:16px;line-height:16px;font-size:12px;color:var(--muted)">${mo.label}</span>
             </div>`;
@@ -369,30 +404,37 @@ function LifeSummary({ data, ym }) {
   const D = dimOf(y, m);
   const cur = ym === nowYm(), past = ym < nowYm();
   const upto = cur ? now.getDate() : past ? D : 0;
+  // 하루 계산용(경조사 통장 제외)과 생활비 전체(경조사 포함)를 나눠서 계산
   const monthBudget = sum(lifeBudgetOf(data, ym), (b) => b.amt);
-  const spent = sum(data.spend.filter((s) => s.date.startsWith(ym)), (r) => r.amt);
+  const fundAmt = fundCovers(data, ym) ? sum(activeIn(data.items, addYm(ym, -1)).filter((i) => i.cat === 'fund'), (i) => i.amt) : 0;
+  const totalBudget = monthBudget; // 생활비 = 경조사 제외 (경조사는 통장 카드에서 따로)
+  const monthRows = data.spend.filter((s) => s.date.startsWith(ym));
+  const spentEx = sum(monthRows.filter((s) => !isFundSpend(data, s)), (r) => r.amt);
+  const spent = spentEx;
   const daily = Math.floor(monthBudget / D);
-  const bDiff = monthBudget - spent;
-  const spentToDate = sum(data.spend.filter((s) => s.date.startsWith(ym) && Number(s.date.slice(8)) <= upto), (r) => r.amt);
+  const bDiff = totalBudget - spent;
+  const exDiff = monthBudget - spentEx;
+  const spentToDate = sum(data.spend.filter((s) => s.date.startsWith(ym) && !isFundSpend(data, s) && Number(s.date.slice(8)) <= upto), (r) => r.amt);
   const pDiff = Math.floor(monthBudget * upto / D) - spentToDate; // 미래 날짜로 미리 적은 건 빼고 오늘까지만
   const box = (over) => ({ box: { borderRadius: '12px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '2px', background: over ? 'var(--warn-bg)' : 'var(--blue-bg)' }, lab: { fontSize: '12px', color: over ? 'var(--warn)' : '#0A3C80' }, val: { fontSize: '17px', fontWeight: 700, color: over ? 'var(--warn)' : 'var(--blue-d)' } });
   const bb = box(bDiff < 0), pb = box(pDiff < 0), nb = box(false);
   const left = D - upto;
   const restText = !cur ? (past ? `하루 평균 ${fmt(spent / D)}원 썼어요` : '아직 시작 전인 달이에요')
     : left === 0 ? '오늘이 이번 달 마지막 날이에요'
-      : bDiff <= 0 ? `예산을 이미 다 썼어요. 남은 ${left}일은 아껴봐요`
-        : `남은 ${left}일은 하루 ${fmt(Math.floor(bDiff / left))}원까지 쓸 수 있어요`;
+      : exDiff <= 0 ? `예산을 이미 다 썼어요. 남은 ${left}일은 아껴봐요`
+        : `남은 ${left}일은 하루 ${fmt(Math.floor(exDiff / left))}원까지 쓸 수 있어요`;
   return html`<section class="card pad">
     <div style="display:flex;align-items:flex-end;justify-content:space-between">
       <div style="display:flex;flex-direction:column;gap:4px">
         <span class="lbl">${cur ? '이번 달' : m + '월'} 생활비 쓴 돈</span>
         <span class="big">${fmt(spent)}<small>원</small></span>
       </div>
-      <span style="font-size:14px;color:var(--muted);padding-bottom:6px">/ ${fmt(monthBudget)}</span>
+      <span style="font-size:14px;color:var(--muted);padding-bottom:6px">/ ${fmt(totalBudget)}</span>
     </div>
     <div style="position:relative;height:10px;border-radius:5px;background:#EDEDF0;overflow:hidden">
-      <div style=${{ position: 'absolute', left: 0, top: 0, bottom: 0, width: Math.min(100, monthBudget ? Math.floor(spent / monthBudget * 100) : 0) + '%', background: bDiff < 0 ? 'var(--orange)' : 'var(--blue)' }}></div>
+      <div style=${{ position: 'absolute', left: 0, top: 0, bottom: 0, width: Math.min(100, totalBudget ? Math.floor(spent / totalBudget * 100) : 0) + '%', background: bDiff < 0 ? 'var(--orange)' : 'var(--blue)' }}></div>
     </div>
+
     <div class="grid2">
       <div style=${bb.box}><span style=${bb.lab}>${cur ? '이번 달' : m + '월'} 생활비</span><span style=${bb.val}>${fmt(Math.abs(bDiff))}원 ${bDiff < 0 ? '초과' : '남음'}</span></div>
       ${cur
@@ -427,7 +469,8 @@ function LifeCalendar({ data, ym }) {
   const byDay = {};
   data.spend.filter((s) => s.date.startsWith(prefix)).forEach((r) => { const d = Number(r.date.slice(8)); (byDay[d] = byDay[d] || []).push(r); });
   Object.keys(byDay).forEach((k) => byDay[k].reverse());
-  const dayTotal = (d) => sum(byDay[d] || [], (r) => r.amt);
+  // 통장에서 나간 경조사는 하루 예산·스티커 계산에서 제외
+  const dayTotal = (d) => sum((byDay[d] || []).filter((r) => !isFundSpend(data, r)), (r) => r.amt);
   const dateLabel = (d) => `${m}.${d} (${WK[new Date(y, m - 1, d).getDay()]})`;
   const totStyle = (t) => ({ fontSize: '13px', fontWeight: 700, color: t > daily ? 'var(--warn)' : t === 0 ? 'var(--muted)' : 'var(--text2)' });
   const first = new Date(y, m - 1, 1).getDay();
@@ -459,13 +502,14 @@ function LifeCalendar({ data, ym }) {
       continue;
     }
     const good = v <= daily;
-    if (!isToday) { if (v === 0) zeroDays++; if (good) goodDays++; }
+    const onlyFund = v === 0 && (byDay[d] || []).length > 0; // 경조사 통장 지출만 있는 날
+    if (!isToday) { if (v === 0 && !onlyFund) zeroDays++; if (good) goodDays++; }
     const st = good ? { background: '#fff', boxShadow: on ? 'inset 0 0 0 2px #1C1C1E' : 'inset 0 0 0 1px #EFEFF3' }
       : v > 50000 ? { background: '#FDE2E1', color: '#B42318' } : { background: '#ECECF0', color: '#6E6E73' };
     cal.push(html`<button type="button" aria-pressed=${on} aria-label=${`${m}월 ${d}일 ${v}원${good ? ' 예산 지킴' : ''}`} style=${Object.assign({}, base, st)} onClick=${() => setSelDay(selDay === d ? null : d)}>
       <span style=${{ fontSize: '7px', lineHeight: '9px', color: good ? 'var(--faint)' : 'inherit', fontWeight: 600 }}>${d}</span>
       <span style="height:32px;display:flex;align-items:center;justify-content:center">${good ? sticker(32) : html`<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" stroke=${v > 50000 ? '#EBA8A4' : '#C7C7CC'} stroke-width="1.4" stroke-linecap="round"/></svg>`}</span>
-      <span style=${{ fontSize: '7px', lineHeight: '9px', letterSpacing: '-0.03em', fontWeight: 600, color: good ? 'var(--text2)' : 'inherit' }}>${v ? man(v) : '무지출'}</span></button>`);
+      <span style=${{ fontSize: '7px', lineHeight: '9px', letterSpacing: '-0.03em', fontWeight: 600, color: good ? 'var(--text2)' : 'inherit' }}>${v ? man(v) : onlyFund ? '경조사' : '무지출'}</span></button>`);
   }
   const rows = selDay ? byDay[selDay] || [] : [];
   return html`<section class="card" style="padding:16px 12px;display:flex;flex-direction:column;gap:10px">
@@ -482,10 +526,42 @@ function LifeCalendar({ data, ym }) {
       </div>
       ${selDay && html`<div style="margin:4px -12px -16px;border-top:0.5px solid var(--line)">
         <div class="band" style="height:38px;border-top:0"><span>${dateLabel(selDay)}</span><span style=${totStyle(dayTotal(selDay))}>${fmt(dayTotal(selDay))}원</span></div>
-        ${rows.map((r) => html`<div class="line"><span style="width:48px;flex:none;font-size:15px;font-weight:600">${r.cat}</span><span class="ell" style="flex:1;font-size:14px;color:var(--muted)">${r.memo}</span><span style="font-size:15px;font-weight:600">${fmt(r.amt)}</span></div>`)}
+        ${rows.map((r) => html`<div class="line"><span style="width:48px;flex:none;font-size:15px;font-weight:600">${r.cat}</span>${isFundSpend(data, r) ? html`<span style="flex:none;font-size:10px;font-weight:700;color:#C2477A;background:#FCE8F0;border-radius:5px;padding:2px 5px">통장</span>` : ''}<span class="ell" style="flex:1;font-size:14px;color:var(--muted)">${r.memo}</span><span style="font-size:15px;font-weight:600">${fmt(r.amt)}</span></div>`)}
         ${rows.length === 0 ? html`<div class="empty">지출 없음</div>` : ''}
       </div>`}
     </section>`;
+}
+
+/* 경조사 통장 잔액 카드 (월 예산 탭) */
+function FundCard({ data, api }) {
+  const [adj, setAdj] = useState(null);
+  const fs = fundState(data);
+  if (!fs) return '';
+  const neg = fs.balance < 0;
+  const man1 = (v) => (v < 0 ? '−' : '') + fmt(Math.abs(v));
+  return html`<section class="card" style="padding:16px 20px;display:flex;flex-direction:column;gap:10px;margin-top:12px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="dot" style="background:#E07BB0"></span>
+      <span style="flex:1;font-size:15px;font-weight:700">경조사 통장</span>
+      <span style=${{ fontSize: '20px', fontWeight: 800, color: neg ? 'var(--red)' : 'var(--text)' }}>${man1(fs.balance)}<span style="font-size:14px;font-weight:700">원</span></span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2)">
+      <span>이번 달 입금 <b style="color:var(--blue-d)">+${fmt(fs.inThis)}</b> · 사용 <b style="color:#C2477A">−${fmt(fs.outThis)}</b></span>
+      ${neg ? html`<span style="font-weight:700;color:var(--red)">${fmt(-fs.balance)}원 부족</span>` : ''}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)">
+      <span>${fs.nextIn ? `다음 입금 ${Number(fs.nextIn.date.slice(5, 7))}.${Number(fs.nextIn.date.slice(8))} +${fmt(fs.nextIn.amt)}` : ''}</span>
+      <button type="button" class="link" style="font-size:13px;padding:4px 0" onClick=${() => setAdj(fs.balance > 0 ? fs.balance : null)}>실제 잔액 맞추기</button>
+    </div>
+    ${adj !== null && html`<${Sheet} title="실제 잔액 맞추기" onClose=${() => setAdj(null)} onSave=${() => {
+      const diff = (adj || 0) - fs.balance;
+      if (diff) api.upsert('items', { id: newId('i'), cat: 'fundadj', name: '경조사 잔액 조정', amt: diff, day: 0, memo: todayStr(), review: '', link: '', order: 0, from: '', to: '' });
+      setAdj(null);
+    }}>
+      <span class="sub">통장 앱에 보이는 지금 잔액을 넣으면, 차이만큼 맞춰서 이 금액부터 다시 계산해요.</span>
+      <${AmtInput} value=${adj === undefined ? null : adj} onChange=${(v) => setAdj(v == null ? undefined : v)} autofocus />
+    <//>`}
+  </section>`;
 }
 
 /* ───────── ② 월 예산 ───────── */
@@ -502,13 +578,14 @@ function Budget({ data, api }) {
   const setYm = (k) => { setYmRaw(k); setOpen(null); setOpenId(null); setOpenDay(null); };
   const isCurM = ym === nowYm(), isPastM = ym < nowYm();
 
-  const items = activeIn(data.items, ym).filter((x) => x.cat !== 'income').sort(byOrder);
+  const fcov = fundCovers(data, ym);
+  const items = activeIn(data.items, ym).filter((x) => x.cat !== 'income' && x.cat !== 'fundadj' && !(fcov && x.cat === 'life' && x.name === FUND_CAT)).sort(byOrder);
   const of = (k) => items.filter((x) => x.cat === k);
   const sumOf = (k) => sum(of(k), (x) => x.amt);
   const total = sum(CATS, (c) => sumOf(c[0]));
   const ceil10k = (n) => Math.ceil(n / 10000) * 10000;
   const acctA = ceil10k(sumOf('save') + sumOf('invest'));
-  const acctB = ceil10k(sumOf('use') + sumOf('house') + sumOf('fixed') + sumOf('meet'));
+  const acctB = ceil10k(sumOf('use') + sumOf('house') + sumOf('fixed') + sumOf('meet') + sumOf('fund'));
   const lifeSum = sumOf('life');
   const income = incomeOf(data, ym);
   const incomeItem = activeIn(data.items, ym).find((x) => x.cat === 'income');
@@ -589,6 +666,7 @@ function Budget({ data, api }) {
     <h1 class="h1">월 예산</h1>
 
     <${LifeSummary} data=${data} ym=${ym} />
+    <${FundCard} data=${data} api=${api} />
 
     <h2 class="h2">생활비 달력</h2>
     <${LifeCalendar} key=${ym} data=${data} ym=${ym} />
