@@ -585,8 +585,9 @@ function Budget({ data, api }) {
   const total = sum(CATS, (c) => sumOf(c[0]));
   const ceil10k = (n) => Math.ceil(n / 10000) * 10000;
   const acctA = ceil10k(sumOf('save') + sumOf('invest'));
-  const acctB = ceil10k(sumOf('use') + sumOf('house') + sumOf('fixed') + sumOf('meet') + sumOf('fund'));
+  const acctB = ceil10k(sumOf('use') + sumOf('house') + sumOf('fixed') + sumOf('meet'));
   const lifeSum = sumOf('life');
+  const fundSum = sumOf('fund'); // 경조사 통장은 월급날 직접 입금 → 자동이체·출금 일정에서 제외
   const income = incomeOf(data, ym);
   const incomeItem = activeIn(data.items, ym).find((x) => x.cat === 'income');
   // 이 달(ym)에서 고치면 이 달부터 앞으로 적용, 지난 달은 그대로
@@ -601,7 +602,7 @@ function Budget({ data, api }) {
     if ((x.from || '') === ym) api.remove('items', x.id);
     else api.upsert('items', Object.assign({}, x, { to: addYm(ym, -1) }));
   };
-  const diff = income == null ? null : income - acctA - acctB - lifeSum;
+  const diff = income == null ? null : income - acctA - acctB - lifeSum - fundSum;
   const accounts = data.accounts.filter((a) => !a.closed).sort(byOrder);
   const D = dimOf(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)));
   const today = isCurM ? now.getDate() : isPastM ? D + 1 : 0;
@@ -611,7 +612,7 @@ function Budget({ data, api }) {
   const byDay = {};
   const undated = [];
   CATS.forEach(([k, label, color]) => {
-    if (k === 'life') return;
+    if (k === 'life' || k === 'fund') return;
     of(k).forEach((x) => {
       const r = { name: x.name, cat: label, amt: x.amt, color };
       if (x.day) { const d = Math.min(x.day, D); (byDay[d] = byDay[d] || []).push(r); } else undated.push(r);
@@ -637,7 +638,7 @@ function Budget({ data, api }) {
   if (isCurM && today > 25) {
     for (let i = today; i <= D; i++) remain += amounts[i] || 0;
     const nk = addYm(ym, 1);
-    activeIn(data.items, nk).forEach((x) => { if (x.cat !== 'life' && x.cat !== 'income' && x.day && x.day <= 25) remain += x.amt; });
+    activeIn(data.items, nk).forEach((x) => { if (x.cat !== 'life' && x.cat !== 'income' && x.cat !== 'fund' && x.cat !== 'fundadj' && x.day && x.day <= 25) remain += x.amt; });
   }
   const sorted = Object.keys(byDay).map(Number).sort((a, b) => a - b);
   let groups = sorted.filter((d) => d >= today).map((d) => [d, byDay[d]]);
@@ -674,7 +675,7 @@ function Budget({ data, api }) {
     <h2 class="h2" style="display:flex;justify-content:space-between"><span>월급 배분</span><span>${lastEdit ? lastEdit + ' 수정' : ''}</span></h2>
     <section class="card pad" style="gap:16px;position:relative">
     <div aria-hidden=${!budgetOpen} style=${Object.assign({ display: 'flex', flexDirection: 'column', gap: '16px' }, budgetOpen ? {} : { filter: 'blur(12px)', pointerEvents: 'none', userSelect: 'none', WebkitUserSelect: 'none' })}>
-      <div style="display:flex;flex-direction:column;gap:4px"><span class="lbl">${isCurM ? '이번 달' : Number(ym.slice(5, 7)) + '월'} 예산 합계</span><span class="big">${fmt(acctA + acctB + lifeSum)}<small>원</small></span></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="lbl">${isCurM ? '이번 달' : Number(ym.slice(5, 7)) + '월'} 예산 합계</span><span class="big">${fmt(acctA + acctB + lifeSum + fundSum)}<small>원</small></span></div>
       <div class="grid2">
         <button type="button" onClick=${() => setIncomeDraft(income == null ? undefined : income)} style="border:0;text-align:left;background:var(--bg);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px">
           <span class="sub">실수령</span><span style="font-size:15px;font-weight:600">${income == null ? '입력하기 ›' : fmt(income) + '원'}</span>
@@ -692,6 +693,7 @@ function Budget({ data, api }) {
       <div style="border-top:0.5px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px">
         <div style="display:flex;justify-content:space-between"><span style="font-size:14px;color:var(--text2)">적금·투자 합계</span><span style="font-size:15px;font-weight:700;color:var(--blue-d)">${fmt(acctA)}원</span></div>
         <div style="display:flex;justify-content:space-between"><span style="font-size:14px;color:var(--text2)">자동이체 합계</span><span style="font-size:15px;font-weight:700;color:var(--blue-d)">${fmt(acctB)}원</span></div>
+        ${fundSum ? html`<div style="display:flex;justify-content:space-between"><span style="font-size:14px;color:var(--text2)">경조사</span><span style="font-size:15px;font-weight:700;color:var(--text)">${fmt(fundSum)}원</span></div>` : ''}
         <div style="display:flex;justify-content:space-between"><span style="font-size:14px;color:var(--text2)">생활비</span><span style="font-size:15px;font-weight:700;color:var(--text)">${fmt(lifeSum)}원</span></div>
       </div>
     </div>
